@@ -1,0 +1,278 @@
+---
+title: "Código - Análise de experimento natural: efeito de desastres naturais na agenda política climática municipal no Brasil"
+output: html_notebook
+---
+
+# 0. Bibbliotecas
+
+```{r, echo=FALSE}
+library(tidyverse)
+library(readxl)
+library(here)
+library(RColorBrewer)
+library(stringi)
+```
+
+# 1. Recolhendo os dados
+
+## 1.1 Dados sobre desastres:
+
+```{r, warning=FALSE, 'Baixando_desastres'}
+# Fonte Dados BD Atlas: http://atlasdigital.mdr.gov.br/paginas/downloads.xhtml
+
+#Desastres <- read_excel(path = here("Dados/BD_Atlas_1991_2022.xlsx"), sheet = "Atlas - Valores Corrigidos")
+
+#saveRDS(Desastres, file = here("Dados/Desastres.RDS"))
+
+Desastres <- readRDS(here("Dados/Desastres.RDS"))
+```
+
+```{r, 'Limpando_desastres'}
+
+firstup = function(x){
+    paste(toupper(substring(x, 1, 1)),
+          tolower(substring(x, 2, nchar(x))),
+          sep = "") }
+
+Desastres <- Desastres  %>% 
+  select(ibge,municipio,uf,regiao,data,tipologia, descricao_tipologia, grupo_de_desastre, obitos, total_danos_humanos,prejuizos_totais) %>% 
+  rename("Município" = "municipio", 
+         "UF" = "uf",
+         "Desastre" = "descricao_tipologia",
+         "Grupo_Desastre" = "grupo_de_desastre",
+         "Data" = "data") %>% 
+  mutate(Data = as.Date(Data)) %>% 
+    mutate("Mês" = month(`Data`), 
+           "Ano" = year(`Data`), 
+           Município = firstup(stri_trans_general(Município, "latin-ascii"))) %>% 
+   filter(!(Desastre %in% c('Doenças infecciosas','Rompimento/Colapso de barragens', 'Outros')))
+```
+
+## 1.2 Dados de atividade legislativa
+
+```{r, 'Baixando os dados atividade legislativa'}
+#Dados retirados da api dos municípios. Link "https://sapl.nomedacidade.uf.leg.br/api/materia/materialegislativa
+#Código para levantar e compilar todos em anexo (em Python)
+CidadesAL <- read_csv(file= here("Dados/ProjCidades.csv"))
+```
+
+```{r, 'Adicionando_UF'}
+CidadesAL <- CidadesAL %>% 
+  mutate(UF = substring(gsub(".*\\.([^.]+)\\.[^.]+\\..*", "\\1", API_URL), 1, 2)) %>%
+  group_by(City) %>%
+  mutate(prim.ano = min(ano),
+         Município = firstup(stri_trans_general(City, "latin-ascii")),
+         UF = toupper(UF),
+         data_apresentacao = as.Date(data_apresentacao),
+         Tipo_Projeto = firstup(sub(" nº.*", "", `__str__`))) %>% 
+  rename("Nome Propositura" = "__str__",
+         "Data" = "data_apresentacao",
+         "Ano" = "ano")
+
+saveRDS(CidadesAL, file = here("Dados/CidadesAL.RDS"))
+
+rm(CidadesAL)
+```
+
+```{r, 'Selecionando_dados_AL'}
+
+CidadesAL <- readRDS(file = here("Dados/CidadesAL.RDS")) %>% 
+  select(!(c(metadata, tipo_apresentacao, ip, user, anexadas,autores))) %>% 
+  filter(Ano >= 1991) %>% 
+  ungroup()
+
+mCidadesAl <- CidadesAL %>% 
+  select(c(Data, Tipo_Projeto, ementa, Município, UF, prim.ano))%>% 
+  mutate(Mês = month(Data),
+         Ano = year(Data),
+         Tipo_Projeto = firstup(Tipo_Projeto),
+         Tipo = stri_trans_general(sub(" .*", "", `Tipo_Projeto`), "latin-ascii")) %>% 
+  filter(Ano >= 1991,
+         Ano <= 2022)
+
+rm(CidadesAL)
+```
+
+## 1.3 Dados municipais
+
+```{r, 'Baixar_dados_munic'}
+#Dados Censo 2022: https://www.ibge.gov.br/estatisticas/sociais/populacao/22827-censo-demografico-2022.html?=&t=downloads
+
+Censo2022 <- read_excel(path = here("Dados/CD2022_Populacao_Coletada_Imputada_e_Total_Municipio_e_UF_20231222.xlsx"), skip = 2)
+
+#Dados MapBiomas: https://brasil.mapbiomas.org/estatisticas/
+MapBiomas <- read_excel(path = here("Dados/tabela_geral_mapbiomas_col8_biomas_municipios.xlsx"), sheet = "COBERTURA_COL8.0")
+
+#IDH-M Brasil: http://idhm.org.br/ranking
+IDHM2010 <- read_excel(path = here("Dados/IDHM_data.xlsx"))
+
+```
+
+```{r, 'Limpar_dados_munic'}
+Censo2022 <- Censo2022 %>% 
+  rename("Município" = "NOME DO MUNICÍPIO",
+         "Populacao_2022" = "POP. TOTAL")%>% 
+  mutate(Município = firstup(stri_trans_general(Município, "latin-ascii")),
+         ibge = paste0(`COD. UF`, `COD. MUNIC`)) %>% 
+    select(!(c(`POP. COLETADA`,`POP. IMPUTADA`, `COD. UF`, `COD. MUNIC`))) 
+
+
+
+MapBiomas <- MapBiomas %>% 
+  select(!(c(feature_id, `biome [municipality]`, color, level_1, level_2,level_3, category,`1985`, `1986`, `1987`, `1988`, `1989`, `1990`)))%>% 
+  pivot_longer(cols = c(`1991`:`2022`), names_to = "Ano", values_to = "area_cobertura")%>%
+  rename("Bioma" = "biome",
+         "Município" = "municipality",
+         "UF" = "state_acronym",
+         "ibge" = "geocode")%>% 
+  pivot_wider(names_from = c(level_0, level_4), values_from = area_cobertura)%>% 
+  mutate(Município = firstup(stri_trans_general(Município, "latin-ascii")))
+
+
+#MapBiomas <- MapBiomas %>% 
+  #group_by(Bioma,Município, UF, ibge, class_id, Ano) %>% 
+  #summarise(across(everything(), ~ if(all(is.na(.))) NA else na.omit(.)[1]))
+
+IDHM2010 <- IDHM2010 %>% 
+  select(Territorialidade, IDHM, `IDHM Renda`, `IDHM Educação`, `IDHM Longevidade`) %>% 
+  mutate(UF = str_extract(Territorialidade, "\\((.*?)\\)"),
+         Territorialidade = stri_trans_general(sub(" \\(.*", "", `Territorialidade`), "latin-ascii")) %>%
+  mutate(Territorialidade = firstup(stri_trans_general(Territorialidade, "latin-ascii")),
+        UF = gsub("\\(|\\)", "", UF)) %>% 
+  rename("Município" = Territorialidade)
+```
+
+```{r, 'Juntando_dados_munic'}
+
+mMapBiomas <- MapBiomas %>% 
+  select(Bioma, Município, UF, ibge, Ano) %>% 
+  distinct() %>% 
+  mutate(ibge = as.character(ibge))
+
+
+Dados_munic <- merge(mMapBiomas, Censo2022, by = c("ibge", "UF", "Município"), all = TRUE)
+
+Dados_munic <- merge(Dados_munic, IDHM2010, by = c("UF", "Município"), all = TRUE)
+
+Dados_munic <- Dados_munic %>% 
+  filter(!is.na(Município))
+
+saveRDS(Dados_munic, file = here("Dados/Dados_munic.RDS"))
+```
+
+## Juntando as três bases de dados:
+
+```{r}
+
+```
+
+# 2. Análise descritiva dos dados:
+
+## 2.1 Desastres
+
+```{r, 'n_ocorrencias'}
+fig1 <- Desastres %>% 
+  count(Desastre) %>% 
+  data.frame() %>% 
+  arrange(desc(n)) %>% 
+  rename("Nº de ocorrências" = n) %>% 
+  ggplot(aes(x = `Nº de ocorrências`, y = reorder(Desastre, `Nº de ocorrências`)), fill = Desastre) +
+  geom_col() +
+  theme_linedraw()+ 
+  xlab(label = "Número de ocorrências") +
+  ylab(label = "Tipo de desastre") +
+  labs(title = "Figura 1- Número de ocorrências no 'Atlas' (1991-2022)")+
+  theme(axis.text.x = element_text(angle = 60, vjust = 1, hjust=1)) +
+  theme(legend.position="none", text=element_text(size=10))+ 
+  scale_fill_brewer(palette = "Dark2")
+
+plot(fig1)
+```
+
+```{r, 'Cronologia_Desastres'}
+
+fig2 <- Desastres%>% 
+  group_by(Ano, Desastre) %>% 
+  summarise("Ocorrências" = n()) %>% 
+  arrange(Ano) %>% 
+  ggplot(aes(x = Ano, y = Ocorrências , fill = Desastre)) +
+  geom_bar(stat="identity") +
+  theme_linedraw()+
+  xlab(label = "Ano") +
+  ylab(label = "Número de ocorrências") +
+  labs(title = "Figura 2 - Número de ocorrências no 'Atlas' (1991-2022)")+
+  theme(axis.text.x = element_text(angle = 60, vjust = 1, hjust=1),
+        legend.position="bottom", text=element_text(size=10))
+  theme(legend.text = element_text(size = 5),
+        legend.title = element_blank())
+
+plot(fig2)
+```
+
+```{r, 'Decis populacionais'}
+fig3 <- Desastres %>% 
+  ggplot(aes( x = `Decil populacional`, fill =Desastre)) + 
+  geom_bar()+ 
+  theme_linedraw()+
+  labs(title = "Figura 3 - Distribuição dos tipos de desastre, por decil populacional")+
+  scale_fill_brewer(palette = "Dark2")+
+   ylab(label = "Ocorrências")+
+  theme(text=element_text(size=10),
+        legend.position="bottom",
+        legend.text = element_text(size = 5),
+        legend.title = element_blank())+
+  theme(text=element_text(size=7),
+        plot.margin = margin(1,1,1,1, "cm"))
+
+plot(fig3)
+```
+
+## 2.2 Descritivo Atividade Legislativa das Câmaras Municipais
+
+```{r 'N_cidades_ano'}
+# Calcula quantas cidades aparecem em cada ano:
+presence <- mCidadesAl %>%
+  group_by(Ano, Município) %>%
+  summarise(N_Proj = n()) %>% 
+  ungroup() %>%
+  complete(Ano, Município, fill = list(N_Proj = 0)) %>%  
+  mutate(presente = ifelse(N_Proj > 0 , 1, 0)) %>% 
+  group_by(Ano) %>% 
+  summarise(n_cidades = sum(presente)) %>% 
+  mutate(percent= n_cidades / max(n_cidades))
+
+
+# Create the plot
+fig4 <- ggplot(presence, aes(x = Ano, y = n_cidades)) +
+  geom_bar(stat = "identity") +
+  labs(x = "Ano", y = "Número de cidades") +
+  ggtitle("Número de cidades presentes na base de dados por ano") +
+  theme_linedraw()+
+  scale_y_continuous(n.breaks = 10)+
+  scale_x_continuous(n.breaks = 10)
+
+plot(fig4)
+
+rm(presence)
+```
+
+```{r 'Tipos_Projetos'}
+tiproj <- mCidadesAl %>%
+  group_by(Tipo, Ano) %>% 
+  summarise(n_al = n()) %>%
+  group_by(Ano) %>%
+  mutate(p_al = n_al / sum(n_al))%>% 
+  mutate(Tipo = ifelse(p_al < 0.03, "Outros", Tipo)) %>%
+  group_by(Tipo, Ano) %>%
+  summarise(p_al = sum(p_al))
+
+fig5 <- tiproj %>% 
+  ggplot(aes( x = `Ano`, y = p_al, fill = Tipo)) + 
+  geom_bar(stat = "identity")+ 
+  theme_linedraw()+
+  labs(title = "Figura 5 - Distribuição dos tipos de projeto, por ano")+
+  scale_fill_brewer(palette = "Dark2")+
+  ylab('Percentual de projetos')
+
+plot(fig5)
+```
