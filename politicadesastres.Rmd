@@ -3,7 +3,7 @@ title: "Código - Análise de experimento natural: efeito de desastres naturais 
 output: html_notebook
 ---
 
-# 0. Bibbliotecas
+# 0. Bibliotecas
 
 ```{r, echo=FALSE}
 library(tidyverse)
@@ -11,6 +11,11 @@ library(readxl)
 library(here)
 library(RColorBrewer)
 library(stringi)
+
+firstup = function(x){
+    stri_trans_general(paste(toupper(substring(x, 1, 1)),
+          tolower(substring(x, 2, nchar(x))),
+          sep = ""), "latin-ascii") }
 ```
 
 # 1. Recolhendo os dados
@@ -20,19 +25,10 @@ library(stringi)
 ```{r, warning=FALSE, 'Baixando_desastres'}
 # Fonte Dados BD Atlas: http://atlasdigital.mdr.gov.br/paginas/downloads.xhtml
 
-#Desastres <- read_excel(path = here("Dados/BD_Atlas_1991_2022.xlsx"), sheet = "Atlas - Valores Corrigidos")
-
-#saveRDS(Desastres, file = here("Dados/Desastres.RDS"))
-
-Desastres <- readRDS(here("Dados/Desastres.RDS"))
+Desastres <- read_excel(path = here("Dados/BD_Atlas_1991_2022.xlsx"), sheet = "Atlas - Valores Corrigidos")
 ```
 
 ```{r, 'Limpando_desastres'}
-
-firstup = function(x){
-    paste(toupper(substring(x, 1, 1)),
-          tolower(substring(x, 2, nchar(x))),
-          sep = "") }
 
 Desastres <- Desastres  %>% 
   select(ibge,municipio,uf,regiao,data,tipologia, descricao_tipologia, grupo_de_desastre, obitos, total_danos_humanos,prejuizos_totais) %>% 
@@ -46,6 +42,8 @@ Desastres <- Desastres  %>%
            "Ano" = year(`Data`), 
            Município = firstup(stri_trans_general(Município, "latin-ascii"))) %>% 
    filter(!(Desastre %in% c('Doenças infecciosas','Rompimento/Colapso de barragens', 'Outros')))
+
+saveRDS(Desastres, file = here("Dados/Desastres.RDS"))
 ```
 
 ## 1.2 Dados de atividade legislativa
@@ -68,10 +66,6 @@ CidadesAL <- CidadesAL %>%
   rename("Nome Propositura" = "__str__",
          "Data" = "data_apresentacao",
          "Ano" = "ano")
-
-saveRDS(CidadesAL, file = here("Dados/CidadesAL.RDS"))
-
-rm(CidadesAL)
 ```
 
 ```{r, 'Selecionando_dados_AL'}
@@ -88,9 +82,40 @@ mCidadesAl <- CidadesAL %>%
          Tipo_Projeto = firstup(Tipo_Projeto),
          Tipo = stri_trans_general(sub(" .*", "", `Tipo_Projeto`), "latin-ascii")) %>% 
   filter(Ano >= 1991,
-         Ano <= 2022)
+         Ano <= 2022)%>% 
+  mutate(ementa = tolower(sub("\\*.*?\\*", "", ementa)))
+```
 
-rm(CidadesAL)
+```{r, 'termos_clima'}
+
+termos_clima <- c(" clima", " adaptação climática", " defesa civil", " alagamento", " inundação", " deslizamento", " aquecimento global", " mitigação", " fortes chuvas"," ventos", " deslizamentos", " soterramentos", " inundações", " desabamentos", " incêndios", " enxurradas", " alagamentos", " eventos climáticos extremos", " chuvas")
+  
+# Create an empty column to store the found climate terms
+mCidadesAl$clima_termos <- NA_character_
+
+# Create an empty column to store whether climate terms were found
+mCidadesAl$projetoclima <- FALSE
+
+# Iterate over each term in the list
+for (termo in termos_clima) {
+  # Check if the term appears in each value of the "ementa" column
+  termo_found <- grepl(termo, mCidadesAl$ementa, ignore.case = TRUE)
+  
+  # Update the "clima_termos" column with the found terms
+  mCidadesAl$clima_termos[termo_found] <- ifelse(is.na(mCidadesAl$clima_termos[termo_found]), termo, paste(mCidadesAl$clima_termos[termo_found], termo, sep = ", "))
+  
+  # Update the "projetoclima" column
+  mCidadesAl$projetoclima <- mCidadesAl$projetoclima | termo_found
+}
+
+ALClima <- mCidadesAl %>% 
+  filter(projetoclima == T)
+
+
+saveRDS(ALClima, file = here("Dados/ALClima.RDS"))
+saveRDS(mCidadesAl, file = here("Dados/mCidadesAL.RDS"))
+
+rm(CidadesAL, ALClima)
 ```
 
 ## 1.3 Dados municipais
@@ -103,12 +128,16 @@ Censo2022 <- read_excel(path = here("Dados/CD2022_Populacao_Coletada_Imputada_e_
 #Dados MapBiomas: https://brasil.mapbiomas.org/estatisticas/
 MapBiomas <- read_excel(path = here("Dados/tabela_geral_mapbiomas_col8_biomas_municipios.xlsx"), sheet = "COBERTURA_COL8.0")
 
+#Municípios Costeiros: https://www.ibge.gov.br/geociencias/organizacao-do-territorio/estrutura-territorial/34330-municipios-costeiros.html
+Costeiro <- read_excel(path = here("Dados/Municipios_Costeiros_2021.xls"))
+
 #IDH-M Brasil: http://idhm.org.br/ranking
 IDHM2010 <- read_excel(path = here("Dados/IDHM_data.xlsx"))
 
 ```
 
 ```{r, 'Limpar_dados_munic'}
+#Dados Censo
 Censo2022 <- Censo2022 %>% 
   rename("Município" = "NOME DO MUNICÍPIO",
          "Populacao_2022" = "POP. TOTAL")%>% 
@@ -117,7 +146,7 @@ Censo2022 <- Censo2022 %>%
     select(!(c(`POP. COLETADA`,`POP. IMPUTADA`, `COD. UF`, `COD. MUNIC`))) 
 
 
-
+#Dados Bioma
 MapBiomas <- MapBiomas %>% 
   select(!(c(feature_id, `biome [municipality]`, color, level_1, level_2,level_3, category,`1985`, `1986`, `1987`, `1988`, `1989`, `1990`)))%>% 
   pivot_longer(cols = c(`1991`:`2022`), names_to = "Ano", values_to = "area_cobertura")%>%
@@ -133,37 +162,111 @@ MapBiomas <- MapBiomas %>%
   #group_by(Bioma,Município, UF, ibge, class_id, Ano) %>% 
   #summarise(across(everything(), ~ if(all(is.na(.))) NA else na.omit(.)[1]))
 
+
+#Bioma reduzido
+mMapBiomas <- MapBiomas %>% 
+  select(Bioma, Município, UF, ibge, Ano) %>% 
+  distinct(ibge, Município, UF, Ano, .keep_all = TRUE) %>% #remove casos em que há dois biomas no mesmo município e ano
+  mutate(ibge = as.character(ibge)) %>% 
+
+#Costeiro
+
+Costeiro <- Costeiro %>% 
+  select(CD_MUN, NM_MUN) %>% 
+  rename("ibge" = CD_MUN,
+         "Município" = NM_MUN) %>%
+  mutate("Costeiro" = 1, 
+         "Município" = firstup(Município))
+
+#IDH
 IDHM2010 <- IDHM2010 %>% 
-  select(Territorialidade, IDHM, `IDHM Renda`, `IDHM Educação`, `IDHM Longevidade`) %>% 
+  select(Territorialidade, IDHM) %>% 
   mutate(UF = str_extract(Territorialidade, "\\((.*?)\\)"),
          Territorialidade = stri_trans_general(sub(" \\(.*", "", `Territorialidade`), "latin-ascii")) %>%
   mutate(Territorialidade = firstup(stri_trans_general(Territorialidade, "latin-ascii")),
         UF = gsub("\\(|\\)", "", UF)) %>% 
-  rename("Município" = Territorialidade)
+  rename("Município" = Territorialidade,
+         "IDHM_2010" = IDHM)
 ```
 
 ```{r, 'Juntando_dados_munic'}
 
-mMapBiomas <- MapBiomas %>% 
-  select(Bioma, Município, UF, ibge, Ano) %>% 
-  distinct() %>% 
-  mutate(ibge = as.character(ibge))
+Dados_munic <- merge(mMapBiomas, Censo2022, by = c("ibge", "Município", "UF"), all = TRUE)
 
+Dados_munic <- merge(Dados_munic, IDHM2010, by = c("Município", "UF"), all = TRUE)
 
-Dados_munic <- merge(mMapBiomas, Censo2022, by = c("ibge", "UF", "Município"), all = TRUE)
-
-Dados_munic <- merge(Dados_munic, IDHM2010, by = c("UF", "Município"), all = TRUE)
+Dados_munic <- merge(Dados_munic, Costeiro, by = c("ibge", "Município"), all = TRUE) %>% 
+  mutate(Costeiro = ifelse(is.na(Costeiro), 0, Costeiro))
 
 Dados_munic <- Dados_munic %>% 
-  filter(!is.na(Município))
+  filter(!is.na(Município),
+         !is.na(Ano))%>% 
+  mutate(`Decil populacional` = ntile(Populacao_2022, n = 10))
+
 
 saveRDS(Dados_munic, file = here("Dados/Dados_munic.RDS"))
+
+rm(Censo2022, Costeiro, IDHM2010, mMapBiomas)
 ```
 
-## Juntando as três bases de dados:
+## 1.4 Juntando as bases de dados:
 
-```{r}
+```{r, 'Juntando_Desastres_Munic'}
+Desastres <- readRDS(here("Dados/Desastres.RDS"))
+mCidadesAl <- readRDS(file = here("Dados/mCidadesAL.RDS"))
+Dados_munic <- readRDS(file = here("Dados/Dados_munic.RDS"))
 
+df <- merge(Desastres, Dados_munic, by = c("ibge", "UF", "Ano"), all.x = T) %>% 
+  rename("Município" = Município.x) %>% 
+  select(!(Município.y)) %>% 
+  mutate(Municipio = gsub("[[:punct:][:space:]]", "", iconv(Município, to = "ASCII//TRANSLIT")),
+         Data = as.character(Data))
+```
+
+```{r, 'juntando_projetos'}
+#Criando banco de dados resumido de atividade legislativa:
+dfal <- mCidadesAl %>% 
+  group_by(Ano, Data, Município, UF, prim.ano, Tipo_Projeto, clima_termos, projetoclima) %>% 
+  summarise(N_AL = n()) %>% 
+  rename(Municipio = Município)%>% 
+  mutate(Data = as.character(Data))
+
+rm(mCidadesAl) 
+
+#Filtrando municípios que não aparecem na lista de desastres
+municipios_df <- unique(df$Municipio) #Cria lista de municípios únicos na lista anterior
+
+dfal <- dfal %>% #Remove valores que não estão na primeira coluna
+  filter(Municipio %in% municipios_df)
+
+#Adicionando dados municipais:
+
+# Pega dados dos municípios para repassar para outra coluna
+df_dados_munic<- df %>%
+  select(Municipio, Município, UF, ibge, regiao, Bioma, Costeiro, `Decil populacional`) %>%
+  filter(!is.na(Município)) %>% 
+  distinct()
+  
+#Adiciona os dados municipais em dfal
+dfal <- merge(dfal, df_dados_munic, by = c("Municipio", "UF"), all.x = T)
+
+#Filtrando no df os que não estão no dfal
+df <- df %>% #Remove valores que não estão na primeira coluna
+  filter(ibge %in% dfal$ibge)
+
+
+#Juntando os dados de desastres e projetos. 
+df <- merge(df, dfal, by = c("Ano", "Data", "ibge", "Municipio", "Município", "UF", "regiao", "Bioma", "Costeiro", "Decil populacional"), all = T) %>%
+  mutate(Data =  str_replace(as.character(Data), "^[^-]+", as.character(Ano))) %>%
+  filter(Ano <= 2022) %>% 
+  arrange(Data) %>% 
+  mutate(TDesastre = ifelse(is.na(Desastre), FALSE, TRUE),
+         Data = as.Date(Data)) %>% 
+  select(!(c(Municipio)))
+
+#ADICIONAR ESTAÇÕES DO ANO
+saveRDS(df, file = here("Dados/df.RDS"))
+rm(df_dados_munic, dfal, municipios_df)
 ```
 
 # 2. Análise descritiva dos dados:
@@ -176,7 +279,7 @@ fig1 <- Desastres %>%
   data.frame() %>% 
   arrange(desc(n)) %>% 
   rename("Nº de ocorrências" = n) %>% 
-  ggplot(aes(x = `Nº de ocorrências`, y = reorder(Desastre, `Nº de ocorrências`)), fill = Desastre) +
+  ggplot(aes(x = `Nº de ocorrências`, y = reorder(Desastre, `Nº de ocorrências`))) +
   geom_col() +
   theme_linedraw()+ 
   xlab(label = "Número de ocorrências") +
@@ -210,12 +313,11 @@ plot(fig2)
 ```
 
 ```{r, 'Decis populacionais'}
-fig3 <- Desastres %>% 
+fig3 <- df %>% 
   ggplot(aes( x = `Decil populacional`, fill =Desastre)) + 
   geom_bar()+ 
   theme_linedraw()+
   labs(title = "Figura 3 - Distribuição dos tipos de desastre, por decil populacional")+
-  scale_fill_brewer(palette = "Dark2")+
    ylab(label = "Ocorrências")+
   theme(text=element_text(size=10),
         legend.position="bottom",
@@ -244,7 +346,7 @@ presence <- mCidadesAl %>%
 
 # Create the plot
 fig4 <- ggplot(presence, aes(x = Ano, y = n_cidades)) +
-  geom_bar(stat = "identity") +
+  geom_bar(stat = "identity", fill = "#1B9E77") +
   labs(x = "Ano", y = "Número de cidades") +
   ggtitle("Número de cidades presentes na base de dados por ano") +
   theme_linedraw()+
@@ -258,16 +360,16 @@ rm(presence)
 
 ```{r 'Tipos_Projetos'}
 tiproj <- mCidadesAl %>%
-  group_by(Tipo, Ano) %>% 
+  group_by(Tipo_Projeto, Ano) %>% 
   summarise(n_al = n()) %>%
   group_by(Ano) %>%
   mutate(p_al = n_al / sum(n_al))%>% 
-  mutate(Tipo = ifelse(p_al < 0.03, "Outros", Tipo)) %>%
-  group_by(Tipo, Ano) %>%
+  mutate(Tipo_Projeto = ifelse(p_al < 0.06, "Outros", Tipo_Projeto)) %>%
+  group_by(Tipo_Projeto, Ano) %>%
   summarise(p_al = sum(p_al))
 
 fig5 <- tiproj %>% 
-  ggplot(aes( x = `Ano`, y = p_al, fill = Tipo)) + 
+  ggplot(aes( x = `Ano`, y = p_al, fill = Tipo_Projeto)) + 
   geom_bar(stat = "identity")+ 
   theme_linedraw()+
   labs(title = "Figura 5 - Distribuição dos tipos de projeto, por ano")+
@@ -275,4 +377,344 @@ fig5 <- tiproj %>%
   ylab('Percentual de projetos')
 
 plot(fig5)
+```
+
+# 3. Definindo recorte temporal
+
+```{r, 'Tabela_contagem_AL_tempo'}
+#Caso df não esteja carreagado:
+#df <- readRDS(here("Dados/df.RDS"))
+
+df_contagem <- data.frame(Ano = c(),  n_municipios = c(), AL_Ano = c(), AL_pos_ano = c()) #Tabela para contagem
+Anos <- df %>% distinct(Ano) #Anos no dataframe df
+
+#Loop para criar tabela comparando número de observações por ano:
+for (i in min(Anos):max(Anos)){
+  #Cria uma variável com o número de observações no ano i selecionado
+  dfano <- df %>% 
+    filter(Ano == i)
+  #Cria uma variável com o código de municípios distintos no ano
+  ctm_municipios <- dfano %>% 
+    distinct(ibge) 
+  #Cria uma variável com todos registros dos municípios presentes no ano "i" nos anos posteriores
+  dfanomais <- df %>% 
+    filter(Ano >= i,
+           ibge %in% ctm_municipios$ibge)
+  
+  #Criando linha do dataframe para o ano
+  df_ctm <- data.frame("Ano" = i, "n_municipios" = nrow(ctm_municipios), "AL_Ano" = nrow(dfano), "AL_pos_ano" = nrow(dfanomais))
+  
+  #Juntando à tabela principal
+  df_contagem <- bind_rows(df_contagem, df_ctm)  
+}
+
+rm(Anos, dfano, ctm_municipios, dfanomais, df_ctm, i)
+```
+
+```{r, 'plotando_contagem_tempo'}
+
+# Criar o gráfico
+fig6 <- ggplot(df_contagem, aes(x = Ano)) +
+  # Adicionar o gráfico de barras para "n_municipios"
+  geom_bar(aes(y = n_municipios), stat = "identity", fill = "#7570B3") +
+  # Adicionar o gráfico de linha para "AL_pos_ano"
+  geom_line(aes(y = AL_pos_ano * (max(df_contagem$n_municipios) / max(df_contagem$AL_pos_ano)))) +
+  # Adicionar eixos duplos
+  scale_y_continuous(
+    name = "Número de Municípios",
+    sec.axis = sec_axis(~ . * (max(df_contagem$AL_pos_ano) / max(df_contagem$n_municipios)), name = "Registros nos anos subsequentes (até 2022)",
+      breaks = scales::pretty_breaks(),
+      labels = scales::comma_format(big.mark = ".", decimal.mark = ","))
+  ) +
+  scale_x_continuous(n.breaks = 10)+
+  # Personalizar cores e temas
+  theme_linedraw()+
+  labs(title = "Figura 6 - Nº de municípios na base de dados por ano x Total de registros nos anos subsequentes")+
+  theme(title = element_text(size = 9),
+        axis.text.y.left = element_text(color = "#7570B3", face = "bold", size = 10),   # Cor do texto do eixo Y à esquerda
+        axis.title.y.left = element_text(color = "#7570B3", face = "bold"))   # Cor do título do eixo Y à esquerda
+
+
+
+rm(df_contagem)
+# Exibir o gráfico
+print(fig6)
+
+```
+
+# 4. Teste de análise Diff-in-Diff
+
+```{r 'Limpando banco de dados'}
+#Caso df não esteja carreagado:
+df <- readRDS(here("Dados/df.RDS"))
+
+#Escolhi 2009 como ano de corte
+df_ibge_2009 <- df %>% 
+  filter(Ano == 2009) %>% 
+  select(ibge) %>% 
+  distinct()
+
+df2009 <- df %>% 
+  filter(ibge %in% df_ibge_2009$ibge,
+         Ano >= 2009, 
+         !is.na(ibge)) %>% 
+  mutate(Data = as.Date(Data))%>% #Adicionar datas posteriores
+  mutate("d_4a" = as.Date(ifelse(Data-1461 < min(Data), NA, Data-1461)),
+         "d_1a" = as.Date(ifelse(Data-365 < min(Data), NA, Data-365)),
+         "d_90" = as.Date(ifelse(Data-90 < min(Data), NA, Data-90)),
+         "d_30" = as.Date(ifelse(Data-30 < min(Data), NA, Data-30)),
+         "d30" = as.Date(ifelse(Data+30 < min(Data), NA, Data+30)),
+         "d90" = as.Date(ifelse(Data+90 < min(Data), NA, Data+90)),
+         "d1a" = as.Date(ifelse(Data+365 < min(Data), NA, Data+365)),
+         "d4a" = as.Date(ifelse(Data+1461 < min(Data), NA, Data+1461)))
+
+
+#Dataframe Desastres
+df2009_desastres <- df2009 %>% 
+  filter(TDesastre == T) 
+
+#Dataframe Atividade Legislativa
+df2009_al_reduzido <- df2009 %>% 
+  filter(TDesastre == F, 
+         projetoclima == T) 
+
+rm(df, df_ibge_2009)
+saveRDS(df2009, file = here("Dados/df2009.RDS"))
+
+```
+
+```{r, 'loop_novas_colunas'}
+#Criando as novas colunas como dataframe separado
+novas_colunas <- c("t_4a", "c_4a", "t_1a", "c_1a", "t_90", "c_90", "t_30", "c_30", 
+                   "t30", "c30", "t90", "c90", "t1a", "c1a", "t4a","c4a")
+
+
+ncdf <- data.frame(matrix(nrow = 0, ncol = length(novas_colunas)))
+
+colnames(ncdf) <- novas_colunas
+
+#Listando os municípios que passam pelo tratamento (desastres):
+
+nome_munic <- df2009_desastres %>%
+  select(ibge) %>% 
+  distinct()
+
+
+for (i in 1: nrow(df2009_desastres)){
+  #30 DIAS --------------------------------------------------------------
+    #Tratamento
+      #Antes
+        #Municípios COM desastres no mesmo dia:
+    
+  t_30 <- df2009_al_reduzido %>% 
+    filter(projetoclima == TRUE,
+         Data >= df2009_desastres[i, "d_30"],
+         Data < df2009_desastres[i, 'Data'],
+         ibge == df2009_desastres[i, 'ibge']) %>% 
+  nrow()
+      #Depois
+  t30 <- df2009_al_reduzido %>% 
+    filter(projetoclima == TRUE,
+         Data <= df2009_desastres[i, "d30"],
+         Data > df2009_desastres[i, 'Data'],
+         ibge == df2009_desastres[i, 'ibge']) %>% 
+    nrow()
+  
+    #Controle
+  #PROBLEMA A SER OBSERVADO: POR SER MÉDIA, UNIDADE DE CONTROLE TAMBÉM TEM DISTRIBUIÇÃO E ERRO. -> DEPOIS FAZER COM DISTRIBUIÇÃO DE TODOS OS CONTROLES. 
+      #Antes
+        #Nº de projetos
+  c_30l <- df2009_al_reduzido %>% 
+    filter(projetoclima == TRUE,
+         Data >= df2009_desastres[i, "d_30"],
+         Data < df2009_desastres[i, 'Data'],
+         ibge != df2009_desastres[i, 'ibge']) %>% 
+  nrow()
+
+        #Média
+  c_30 <- c_30l/nrow(nome_munic)
+  
+      #Depois
+        #Nº de projetos
+  c30l <- df2009_al_reduzido %>% 
+    filter(projetoclima == TRUE,
+         Data <= df2009_desastres[i, "d30"],
+         Data > df2009_desastres[i, 'Data'],
+         ibge != df2009_desastres[i, 'ibge']) %>% 
+  nrow()
+
+        #Média
+  c30<- c30l/nrow(nome_munic)
+  
+
+  #90 DIAS --------------------------------------------------------------
+    #Tratamento
+      #Antes
+        #Municípios COM desastres no mesmo dia:
+    
+  t_90 <- df2009_al_reduzido %>% 
+    filter(projetoclima == TRUE,
+         Data >= df2009_desastres[i, "d_90"],
+         Data < df2009_desastres[i, 'Data'],
+         ibge == df2009_desastres[i, 'ibge']) %>% 
+  nrow()
+      #Depois
+  t90 <- df2009_al_reduzido %>% 
+    filter(projetoclima == TRUE,
+         Data <= df2009_desastres[i, "d90"],
+         Data > df2009_desastres[i, 'Data'],
+         ibge == df2009_desastres[i, 'ibge']) %>% 
+    nrow()
+  
+    #Controle
+  #PROBLEMA A SER OBSERVADO: POR SER MÉDIA, UNIDADE DE CONTROLE TAMBÉM TEM DISTRIBUIÇÃO E ERRO. -> DEPOIS FAZER COM DISTRIBUIÇÃO DE TODOS OS CONTROLES. 
+      #Antes
+        #Nº de projetos
+  c_90l <- df2009_al_reduzido %>% 
+    filter(projetoclima == TRUE,
+         Data >= df2009_desastres[i, "d_90"],
+         Data < df2009_desastres[i, 'Data'],
+         ibge != df2009_desastres[i, 'ibge']) %>% 
+  nrow()
+
+        #Média
+  c_90 <- c_90l/nrow(nome_munic)
+  
+      #Depois
+        #Nº de projetos
+  c90l <- df2009_al_reduzido %>% 
+    filter(projetoclima == TRUE,
+         Data <= df2009_desastres[i, "d90"],
+         Data > df2009_desastres[i, 'Data'],
+         ibge != df2009_desastres[i, 'ibge']) %>% 
+  nrow()
+
+        #Média
+  c90<- c90l/nrow(nome_munic)
+  
+  #365 DIAS (1 ano) --------------------------------------------------------------
+    #Tratamento
+      #Antes
+        #Municípios COM desastres no mesmo dia:
+    
+  t_1a <- df2009_al_reduzido %>% 
+    filter(projetoclima == TRUE,
+         Data >= df2009_desastres[i, "d_1a"],
+         Data < df2009_desastres[i, 'Data'],
+         ibge == df2009_desastres[i, 'ibge']) %>% 
+  nrow()
+      #Depois
+  t1a <- df2009_al_reduzido %>% 
+    filter(projetoclima == TRUE,
+         Data <= df2009_desastres[i, "d1a"],
+         Data > df2009_desastres[i, 'Data'],
+         ibge == df2009_desastres[i, 'ibge']) %>% 
+    nrow()
+  
+    #Controle
+  #PROBLEMA A SER OBSERVADO: POR SER MÉDIA, UNIDADE DE CONTROLE TAMBÉM TEM DISTRIBUIÇÃO E ERRO. -> DEPOIS FAZER COM DISTRIBUIÇÃO DE TODOS OS CONTROLES. 
+      #Antes
+        #Nº de projetos
+  c_1al <- df2009_al_reduzido %>% 
+    filter(projetoclima == TRUE,
+         Data >= df2009_desastres[i, "d_1a"],
+         Data < df2009_desastres[i, 'Data'],
+         ibge != df2009_desastres[i, 'ibge']) %>% 
+  nrow()
+
+        #Média
+  c_1a <- c_1al/nrow(nome_munic)
+  
+      #Depois
+        #Nº de projetos
+  c1al <- df2009_al_reduzido %>% 
+    filter(projetoclima == TRUE,
+         Data <= df2009_desastres[i, "d1a"],
+         Data > df2009_desastres[i, 'Data'],
+         ibge != df2009_desastres[i, 'ibge']) %>% 
+  nrow()
+
+        #Média
+  c1a <- c1al/nrow(nome_munic)
+  
+  #1461 DIAS (4 anos) --------------------------------------------------------------
+    #Tratamento
+      #Antes
+        #Municípios COM desastres no mesmo dia:
+    
+  t_4a <- df2009_al_reduzido %>% 
+    filter(projetoclima == TRUE,
+         Data >= df2009_desastres[i, "d_4a"],
+         Data < df2009_desastres[i, 'Data'],
+         ibge == df2009_desastres[i, 'ibge']) %>% 
+  nrow()
+      #Depois
+  t4a <- df2009_al_reduzido %>% 
+    filter(projetoclima == TRUE,
+         Data <= df2009_desastres[i, "d4a"],
+         Data > df2009_desastres[i, 'Data'],
+         ibge == df2009_desastres[i, 'ibge']) %>% 
+    nrow()
+  
+    #Controle
+  #PROBLEMA A SER OBSERVADO: POR SER MÉDIA, UNIDADE DE CONTROLE TAMBÉM TEM DISTRIBUIÇÃO E ERRO. -> DEPOIS FAZER COM DISTRIBUIÇÃO DE TODOS OS CONTROLES. 
+      #Antes
+        #Nº de projetos
+  c_4al <- df2009_al_reduzido %>% 
+    filter(projetoclima == TRUE,
+         Data >= df2009_desastres[i, "d_4a"],
+         Data < df2009_desastres[i, 'Data'],
+         ibge != df2009_desastres[i, 'ibge']) %>% 
+  nrow()
+
+        #Média
+  c_4a <- c_4al/nrow(nome_munic)
+  
+      #Depois
+        #Nº de projetos
+  c4al <- df2009_al_reduzido %>% 
+    filter(projetoclima == TRUE,
+         Data <= df2009_desastres[i, "d4a"],
+         Data > df2009_desastres[i, 'Data'],
+         ibge != df2009_desastres[i, 'ibge']) %>% 
+  nrow()
+
+        #Média
+  c4a<- c4al/nrow(nome_munic)
+  
+  # ---------------------------------------------------------------------------
+  
+  nova_linha <- data.frame(t_4a, c_4a, t_1a, c_1a, t_90, c_90, t_30, c_30, 
+                           t30, c30, t90, c90, t1a, c1a, t4a,c4a)
+  
+  ncdf <- bind_rows(ncdf, nova_linha)
+}
+
+df2009_desastres <- bind_cols(df2009_desastres, ncdf)%>% 
+  mutate("t_4a" = ifelse(is.na(d_4a), NA, t_4a),
+         "t_1a" = ifelse(is.na(d_1a), NA, t_1a),
+         "t_90" = ifelse(is.na(d_90), NA, t_90),
+         "t_30" = ifelse(is.na(d_30), NA, t_30),
+         "t30" = ifelse(is.na(d30), NA, t30),
+         "t90" = ifelse(is.na(d90), NA, t90),
+         "t1a" = ifelse(is.na(d1a), NA, t1a),
+         "t4a" = ifelse(is.na(d4a), NA, t4a),
+         "c_4a" = ifelse(is.na(d_4a), NA, c_4a),
+         "c_1a" = ifelse(is.na(d_1a), NA, c_1a),
+         "c_90" = ifelse(is.na(d_90), NA, c_90),
+         "c_30" = ifelse(is.na(d_30), NA, c_30),
+         "c30" = ifelse(is.na(d30), NA, c30),
+         "c90" = ifelse(is.na(d90), NA, c90),
+         "c1a" = ifelse(is.na(d1a), NA, c1a),
+         "c4a" = ifelse(is.na(d4a), NA, c4a))
+
+rm(i, t_4a, c_4a, c_4al, t_1a, c_1a, c_1al, t_90, c_90, c_90l, t_30, c_30, c_30l, t30, c30, c30l, t90, c90, c90l, t1a, c1a, c1al, t4a, c4a, c4al, nova_linha, novas_colunas, ncdf)
+
+saveRDS(df2009_desastres, file = here("Dados/df_dd.RDS"))
+```
+
+## Fazendo a regressão Diff-in-Diff
+
+```{r}
+#30 dias
 ```
