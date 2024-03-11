@@ -11,6 +11,8 @@ library(readxl)
 library(here)
 library(RColorBrewer)
 library(stringi)
+library(plm)
+library(performance)
 
 firstup = function(x){
     stri_trans_general(paste(toupper(substring(x, 1, 1)),
@@ -196,7 +198,7 @@ Dados_munic <- merge(mMapBiomas, Censo2022, by = c("ibge", "Município", "UF"), 
 Dados_munic <- merge(Dados_munic, IDHM2010, by = c("Município", "UF"), all = TRUE)
 
 Dados_munic <- merge(Dados_munic, Costeiro, by = c("ibge", "Município"), all = TRUE) %>% 
-  mutate(Costeiro = ifelse(is.na(Costeiro), 0, Costeiro))
+  mutate(Costeiro = ifelse(is.na(Costeiro), "Interior", "Costeiro"))
 
 Dados_munic <- Dados_munic %>% 
   filter(!is.na(Município),
@@ -274,6 +276,7 @@ rm(df_dados_munic, dfal, municipios_df)
 ## 2.1 Desastres
 
 ```{r, 'n_ocorrencias'}
+
 fig1 <- Desastres %>% 
   count(Desastre) %>% 
   data.frame() %>% 
@@ -293,8 +296,19 @@ plot(fig1)
 ```
 
 ```{r, 'Cronologia_Desastres'}
+Desastres <- readRDS(here("Dados/Desastres.RDS"))
 
-fig2 <- Desastres%>% 
+pDesastres <- Desastres %>%
+  group_by(Desastre, Ano) %>% 
+  summarise(n_al = n()) %>%
+  group_by(Ano) %>%
+  mutate(p_al = n_al / sum(n_al))
+
+ggDesastres <- merge(Desastres, pDesastres, by = c('Desastre', 'Ano'), all.x = T) %>% 
+  mutate(p_al = ifelse(is.na(p_al), 0, p_al))%>% 
+  mutate(Desastre = ifelse(p_al < 0.06, "Outros", Desastre))
+
+fig2 <- ggDesastres%>% 
   group_by(Ano, Desastre) %>% 
   summarise("Ocorrências" = n()) %>% 
   arrange(Ano) %>% 
@@ -305,33 +319,43 @@ fig2 <- Desastres%>%
   ylab(label = "Número de ocorrências") +
   labs(title = "Figura 2 - Número de ocorrências no 'Atlas' (1991-2022)")+
   theme(axis.text.x = element_text(angle = 60, vjust = 1, hjust=1),
-        legend.position="bottom", text=element_text(size=10))
-  theme(legend.text = element_text(size = 5),
-        legend.title = element_blank())
+        legend.position="bottom", text=element_text(size=10))+
+  theme(legend.title = element_blank())+
+  scale_fill_brewer(palette = "Dark2")
+    
 
 plot(fig2)
 ```
 
 ```{r, 'Decis populacionais'}
-fig3 <- df %>% 
-  ggplot(aes( x = `Decil populacional`, fill =Desastre)) + 
-  geom_bar()+ 
+
+df_desastres <- readRDS(here("Dados/df.RDS")) %>% 
+  filter(TDesastre == TRUE)  
+
+p_df <- df_desastres %>%  
+  group_by(Desastre, `Decil populacional`) %>%
+  summarise(n = n()) %>% 
+  group_by(`Decil populacional`) %>% 
+  mutate(p_des = n / sum(n))%>% 
+  mutate(Desastre = ifelse(p_des < 0.065, "Outros", Desastre))
+
+
+fig3 <- p_df%>% 
+  ggplot(aes( x = `Decil populacional`, y = p_des, fill =Desastre)) + 
+  geom_bar(stat = "identity", position = "fill")+ 
   theme_linedraw()+
   labs(title = "Figura 3 - Distribuição dos tipos de desastre, por decil populacional")+
-   ylab(label = "Ocorrências")+
-  theme(text=element_text(size=10),
-        legend.position="bottom",
-        legend.text = element_text(size = 5),
-        legend.title = element_blank())+
-  theme(text=element_text(size=7),
-        plot.margin = margin(1,1,1,1, "cm"))
-
+  scale_fill_brewer(palette = "Dark2")+
+   ylab(label = "Percentual")+
+  theme(legend.position="bottom",
+        legend.title = element_blank())
 plot(fig3)
 ```
 
 ## 2.2 Descritivo Atividade Legislativa das Câmaras Municipais
 
 ```{r 'N_cidades_ano'}
+#mCidadesAl <- readRDS(file = here("Dados/mCidadesAL.RDS"))
 # Calcula quantas cidades aparecem em cada ano:
 presence <- mCidadesAl %>%
   group_by(Ano, Município) %>%
@@ -348,7 +372,7 @@ presence <- mCidadesAl %>%
 fig4 <- ggplot(presence, aes(x = Ano, y = n_cidades)) +
   geom_bar(stat = "identity", fill = "#1B9E77") +
   labs(x = "Ano", y = "Número de cidades") +
-  ggtitle("Número de cidades presentes na base de dados por ano") +
+  ggtitle("Figura 4 - Número de cidades presentes na base de dados por ano") +
   theme_linedraw()+
   scale_y_continuous(n.breaks = 10)+
   scale_x_continuous(n.breaks = 10)
@@ -383,7 +407,7 @@ plot(fig5)
 
 ```{r, 'Tabela_contagem_AL_tempo'}
 #Caso df não esteja carreagado:
-#df <- readRDS(here("Dados/df.RDS"))
+df <- readRDS(here("Dados/df.RDS"))
 
 df_contagem <- data.frame(Ano = c(),  n_municipios = c(), AL_Ano = c(), AL_pos_ano = c()) #Tabela para contagem
 Anos <- df %>% distinct(Ano) #Anos no dataframe df
@@ -419,6 +443,7 @@ fig6 <- ggplot(df_contagem, aes(x = Ano)) +
   geom_bar(aes(y = n_municipios), stat = "identity", fill = "#7570B3") +
   # Adicionar o gráfico de linha para "AL_pos_ano"
   geom_line(aes(y = AL_pos_ano * (max(df_contagem$n_municipios) / max(df_contagem$AL_pos_ano)))) +
+  geom_vline(xintercept = 2009, linetype = "dashed")+
   # Adicionar eixos duplos
   scale_y_continuous(
     name = "Número de Municípios",
@@ -691,30 +716,279 @@ for (i in 1: nrow(df2009_desastres)){
 }
 
 df2009_desastres <- bind_cols(df2009_desastres, ncdf)%>% 
-  mutate("t_4a" = ifelse(is.na(d_4a), NA, t_4a),
-         "t_1a" = ifelse(is.na(d_1a), NA, t_1a),
-         "t_90" = ifelse(is.na(d_90), NA, t_90),
-         "t_30" = ifelse(is.na(d_30), NA, t_30),
-         "t30" = ifelse(is.na(d30), NA, t30),
-         "t90" = ifelse(is.na(d90), NA, t90),
-         "t1a" = ifelse(is.na(d1a), NA, t1a),
-         "t4a" = ifelse(is.na(d4a), NA, t4a),
-         "c_4a" = ifelse(is.na(d_4a), NA, c_4a),
-         "c_1a" = ifelse(is.na(d_1a), NA, c_1a),
-         "c_90" = ifelse(is.na(d_90), NA, c_90),
-         "c_30" = ifelse(is.na(d_30), NA, c_30),
-         "c30" = ifelse(is.na(d30), NA, c30),
-         "c90" = ifelse(is.na(d90), NA, c90),
-         "c1a" = ifelse(is.na(d1a), NA, c1a),
-         "c4a" = ifelse(is.na(d4a), NA, c4a))
+  mutate("t_4a" = ifelse(is.na(d_4a) | is.na(d4a), NA, t_4a),
+         "t_1a" = ifelse(is.na(d_1a) | is.na(d1a), NA, t_1a),
+         "t_90" = ifelse(is.na(d_90) | is.na(d90), NA, t_90),
+         "t_30" = ifelse(is.na(d_30) | is.na(d30), NA, t_30),
+         "t30" = ifelse(is.na(d30) | is.na(d_30), NA, t30),
+         "t90" = ifelse(is.na(d90) | is.na(d_90), NA, t90),
+         "t1a" = ifelse(is.na(d1a) | is.na(d_1a), NA, t1a),
+         "t4a" = ifelse(is.na(d4a) | is.na(d_4a), NA, t4a),
+         "c_4a" = ifelse(is.na(d_4a) | is.na(d4a), NA, c_4a),
+         "c_1a" = ifelse(is.na(d_1a) | is.na(d1a), NA, c_1a),
+         "c_90" = ifelse(is.na(d_90) | is.na(d90), NA, c_90),
+         "c_30" = ifelse(is.na(d_30) | is.na(d30), NA, c_30),
+         "c30" = ifelse(is.na(d30) | is.na(d_30), NA, c30),
+         "c90" = ifelse(is.na(d90) | is.na(d_90), NA, c90),
+         "c1a" = ifelse(is.na(d1a) | is.na(d_1a), NA, c1a),
+         "c4a" = ifelse(is.na(d4a) | is.na(d_4a), NA, c4a)) %>% 
+  filter(!is.na(t30))
 
 rm(i, t_4a, c_4a, c_4al, t_1a, c_1a, c_1al, t_90, c_90, c_90l, t_30, c_30, c_30l, t30, c30, c30l, t90, c90, c90l, t1a, c1a, c1al, t4a, c4a, c4al, nova_linha, novas_colunas, ncdf)
 
-saveRDS(df2009_desastres, file = here("Dados/df_dd.RDS"))
+saveRDS(df2009_desastres, file = here("Dados/df2009_desastres.RDS"))
+```
+
+```{r, 'pivot_colunas_dd'}
+df_dd <- df2009_desastres %>% 
+  select(ibge, Data, Ano, Mês, Bioma, Costeiro, Populacao_2022, IDHM, t_4a, c_4a, t_1a, c_1a, t_90, c_90, t_30, c_30, t30, c30, t90, c90, t1a, c1a, t4a,c4a)  %>% 
+  pivot_longer(
+    cols = c(t_4a, c_4a, t_1a, c_1a, t_90, c_90, t_30, c_30, t30, c30, t90, c90, t1a, c1a, t4a,c4a),  # Seleciona as colunas a serem pivotadas
+    names_to = "Codigo_tratamento",       # Coluna nova
+    values_to = "agenda_clima"                  # Coluna para valores
+  ) %>%
+  # Cria novas colunas
+  mutate(
+    Tratamento = ifelse(substr(Codigo_tratamento, 1, 1) == "t", 1, 0),  # Checa se começa com t"
+    Tempo = ifelse(grepl("_", Codigo_tratamento), 0, 1), # Checa se contêm "_"
+    Periodo = substr(Codigo_tratamento, nchar(Codigo_tratamento) - 1, nchar(Codigo_tratamento))  # Extrai o resto
+  ) %>% 
+  filter(!is.na(agenda_clima)) %>% 
+  mutate("Ambiente" = paste(Bioma, Costeiro, sep = "_"),
+         Mês = case_match(as.character(Mês),
+                          "1" ~ "Jan", 
+                          "2" ~ "Fev",
+                          "3" ~ "Mar", 
+                          "4" ~ "Abr",
+                          "5" ~ "Mai", 
+                          "6" ~"Jun",
+                          "7" ~ "Jul", 
+                          "8" ~ "Ago",
+                          "9" ~ "Set", 
+                          "10" ~ "Out",
+                          "11" ~ "Nov", 
+                          "12" ~ "Dez")) %>% 
+  select(-(c(Bioma, Costeiro)))
+
+saveRDS(df_dd, file = here("Dados/df_dd.RDS"))
+
+rm(df2009_desastres)
 ```
 
 ## Fazendo a regressão Diff-in-Diff
 
-```{r}
+### 30 dias
+
+```{r, 'reg30'}
+
+df_dd<- readRDS(here("Dados/df_dd.RDS"))
+
 #30 dias
+df_dd30 <- df_dd %>% 
+  filter(Periodo == 30) 
+
+#Fazendo a regressão:
+  #Colocar multiplicação (*) entre dummy de tratamento e tempo para diff-in-diff:
+reg30 <- lm(agenda_clima ~ Tratamento*Tempo + Ambiente + Mês + Populacao_2022 + IDHM, data = df_dd30)
+#+ Ambiente + Mês + Populacao_2022 + IDHM
+summary(reg30)
+```
+
+```{r, 'ggplot_reg30'}
+#Visualizando o efeito: 
+
+vreg30 <- df_dd30 %>% 
+  group_by(Tratamento, Tempo) %>% 
+  summarise("média_n_projetos" = mean(agenda_clima)) %>% 
+  mutate("Tempo" = ifelse(Tempo == 0, -1, 1),
+         "Tratamento" = ifelse(Tratamento == 0, "Controle", "Tratado"))
+
+ggreg30 <- vreg30 %>% 
+  ggplot(aes(x = Tempo, y=média_n_projetos, color = Tratamento, group = Tratamento))+
+  geom_point(size = 5)+
+  geom_line()+
+  geom_vline(xintercept = 0, linetype = "dashed")+
+  theme_linedraw()+
+  labs(title = "Figura 7 - Diff-in-Diffs: 30 dias",
+        x = "Tempo em relação ao tratamento",
+        y = "Nº médio de projetos climáticos")+
+  scale_color_brewer(palette = "Dark2")+
+  scale_x_continuous(breaks = c(-1, 0, 1),  # Set custom breaks for x-axis
+                     labels = c("-30 dias", "Tratamento", "+30 dias"))
+
+ggreg30
+```
+
+```{r 'Checagem)lm_reg30'}
+#Checando os pressupostos
+check_reg30 <- check_model(reg30)
+```
+
+### 90 dias
+
+```{r, 'reg90'}
+
+#90 dias
+df_dd90 <- df_dd %>% 
+  filter(Periodo == 90) 
+
+#Fazendo a regressão:
+  #Colocar multiplicação (*) entre dummy de tratamento e tempo para diff-in-diff:
+reg90 <- lm(agenda_clima ~ Tratamento*Tempo + Ambiente + Mês + Populacao_2022 + IDHM, data = df_dd90)
+#+ Ambiente + Mês + Populacao_2022 + IDHM
+summary(reg90)
+```
+
+```{r, 'ggplot_reg90'}
+#Visualizando o efeito: 
+
+vreg90 <- df_dd90 %>% 
+  group_by(Tratamento, Tempo) %>% 
+  summarise("média_n_projetos" = mean(agenda_clima)) %>% 
+  mutate("Tempo" = ifelse(Tempo == 0, -1, 1),
+         "Tratamento" = ifelse(Tratamento == 0, "Controle", "Tratado"))
+
+ggreg90 <- vreg90 %>% 
+  ggplot(aes(x = Tempo, y=média_n_projetos, color = Tratamento, group = Tratamento))+
+  geom_point(size = 5)+
+  geom_line()+
+  geom_vline(xintercept = 0, linetype = "dashed")+
+  theme_linedraw()+
+  labs(title = "Figura 8 - Diff-in-Diffs 90 dias",
+        x = "Tempo em relação ao tratamento",
+        y = "Nº médio de projetos climáticos")+
+  scale_color_brewer(palette = "Dark2")+
+  scale_x_continuous(breaks = c(-1, 0, 1),  # Set custom breaks for x-axis
+                     labels = c("-90 dias", "Tratamento", "+90 dias"))
+
+ggreg90
+```
+
+```{r 'Checagem)lm_reg90'}
+#Checando os pressupostos
+check_reg90 <- check_model(reg90)
+```
+
+### 1 ano
+
+```{r, 'reg_1a'}
+#1 ano / 365 dias
+df_dd1a <- df_dd %>% 
+  filter(Periodo == "1a") 
+
+#Fazendo a regressão:
+  #Colocar multiplicação (*) entre dummy de tratamento e tempo para diff-in-diff:
+reg1a <- lm(agenda_clima ~ Tratamento*Tempo + Ambiente + Mês + Populacao_2022 + IDHM, data = df_dd1a)
+#+ Ambiente + Mês + Populacao_2022 + IDHM
+summary(reg1a)
+```
+
+```{r, 'ggplot_reg1a'}
+#Visualizando o efeito: 
+
+vreg1a <- df_dd1a %>% 
+  group_by(Tratamento, Tempo) %>% 
+  summarise("média_n_projetos" = mean(agenda_clima)) %>% 
+  mutate("Tempo" = ifelse(Tempo == 0, -1, 1),
+         "Tratamento" = ifelse(Tratamento == 0, "Controle", "Tratado"))
+
+ggreg1a <- vreg1a %>% 
+  ggplot(aes(x = Tempo, y=média_n_projetos, color = Tratamento, group = Tratamento))+
+  geom_point(size = 5)+
+  geom_line()+
+  geom_vline(xintercept = 0, linetype = "dashed")+
+  theme_linedraw()+
+  labs(title = "Figura 9 - Diff-in-Diffs 1 ano",
+        x = "Tempo em relação ao tratamento",
+        y = "Nº médio de projetos climáticos")+
+  scale_color_brewer(palette = "Dark2")+
+  scale_x_continuous(breaks = c(-1, 0, 1),  # Set custom breaks for x-axis
+                     labels = c("-1 ano", "Tratamento", "+1 ano"))
+
+ggreg1a
+```
+
+```{r 'Checagem_lm_reg1a'}
+#Checando os pressupostos
+check_reg1a <- check_model(reg1a)
+```
+
+### 4 anos
+
+```{r}
+#4 anos/ 1461 dias
+df_dd4a <- df_dd %>% 
+  filter(Periodo == "4a") 
+
+
+#Fazendo a regressão:
+  #Colocar multiplicação (*) entre dummy de tratamento e tempo para diff-in-diff:
+reg4a <- lm(agenda_clima ~ Tratamento*Tempo + Ambiente + Mês + Populacao_2022 + IDHM, data = df_dd4a)
+#+ Ambiente + Mês + Populacao_2022 + IDHM
+summary(reg4a)
+```
+
+```{r, 'ggplot_reg4a'}
+#Visualizando o efeito: 
+
+vreg4a <- df_dd4a %>% 
+  group_by(Tratamento, Tempo) %>% 
+  summarise("média_n_projetos" = mean(agenda_clima)) %>% 
+  mutate("Tempo" = ifelse(Tempo == 0, -1, 1),
+         "Tratamento" = ifelse(Tratamento == 0, "Controle", "Tratado"))
+
+ggreg4a <- vreg4a %>% 
+  ggplot(aes(x = Tempo, y=média_n_projetos, color = Tratamento, group = Tratamento))+
+  geom_point(size = 5)+
+  geom_line()+
+  geom_vline(xintercept = 0, linetype = "dashed")+
+  theme_linedraw()+
+  labs(title = "Figura 10 - Diff-in-Diffs 4 anos",
+        x = "Tempo em relação ao tratamento",
+        y = "Nº médio de projetos climáticos")+
+  scale_color_brewer(palette = "Dark2")+
+  scale_x_continuous(breaks = c(-1, 0, 1),  # Set custom breaks for x-axis
+                     labels = c("-4 anos", "Tratamento", "+4 anos"))
+
+ggreg4a
+```
+
+```{r 'Checagem_lm_reg4a'}
+#Checando os pressupostos
+check_reg4a <- check_model(reg4a)
+```
+
+### Visualizando linha do tempo
+
+```{r}
+#Visualizando o efeito: 
+
+vregT <- df_dd %>% 
+  group_by(Tratamento, Tempo, Periodo) %>% 
+  summarise("média_n_projetos" = mean(agenda_clima)) %>% 
+  mutate("Tempo" = ifelse(Tempo == 0, -1, 1),
+         "Tratamento" = ifelse(Tratamento == 0, "Controle", "Tratado"),
+         "Periodo" = case_match(Periodo,
+                                "30" ~ 30, 
+                                "90" ~ 90,
+                                "1a" ~ 365,
+                                "4a" ~ 1461)) %>% 
+  mutate("Tempo_P" = Tempo*Periodo,
+         "média_n_projetos" = ifelse(Periodo != 1, média_n_projetos*(30/Periodo), média_n_projetos))
+
+ggregT <- vregT %>% 
+  ggplot(aes(x = Tempo_P, y=média_n_projetos, color = Tratamento, group = Tratamento))+
+  geom_point(size = 5)+
+  geom_line()+
+  geom_vline(xintercept = 0, linetype = "dashed")+
+  labs(title = "Figura 11 - Linha do tempo pré e pós-tratamento",
+        x = "Tempo em relação ao tratamento",
+        y = "Nº médio de projetos climáticos a cada 30 dias")+
+  scale_color_brewer(palette = "Dark2")+
+  scale_x_continuous(breaks = c(-1461, -365,-90, -30, 0, 30, 90, 365, 1461),
+                     labels = c("-4 anos", "-1 ano", "-90 dias", "-30 dias", "Tratamento", "+30 dias", "+90 dias", "+1 ano", "+4 anos"))+
+  theme_linedraw()+ 
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+ggregT
 ```
