@@ -11,8 +11,11 @@ library(readxl)
 library(here)
 library(RColorBrewer)
 library(stringi)
-library(plm)
 library(performance)
+library(plm)
+library(geobr)
+library(sf)
+
 
 firstup = function(x){
     stri_trans_general(paste(toupper(substring(x, 1, 1)),
@@ -275,6 +278,37 @@ rm(df_dados_munic, dfal, municipios_df)
 
 ## 2.1 Desastres
 
+```{r}
+df <- readRDS(here("Dados/df.RDS"))
+```
+
+```{r, n_biomas}
+#df_desastres <- readRDS(here("Dados/df.RDS")) %>% 
+  #filter(TDesastre == TRUE)  
+
+p_df <- df_desastres %>%  
+  group_by(Desastre, Bioma) %>%
+  summarise(n = n()) %>% 
+  group_by(Bioma) %>% 
+  mutate(p_des = n / sum(n))%>% 
+  mutate(Desastre = ifelse(p_des < 0.09, "Outros", Desastre))
+
+
+graf1 <- p_df%>% 
+  ggplot(aes( x = Bioma, y = p_des, fill =Desastre)) + 
+  geom_bar(stat = "identity", position = "fill")+ 
+  theme_linedraw()+
+  labs(title = "Gráfico 1 - Distribuição dos tipos de desastre no 'Atlas', por Bioma")+
+  scale_fill_brewer(palette = "Dark2")+
+   ylab(label = "Percentual")+
+  theme(legend.position="bottom",
+        legend.title = element_blank())
+
+ggsave(graf1, file = (here("Gráficos/graf1.png")), width = 20, height = 12, units = "cm")
+
+plot(graf1)
+```
+
 ```{r, 'n_ocorrencias'}
 
 fig1 <- Desastres %>% 
@@ -481,7 +515,7 @@ df_ibge_2009 <- df %>%
 
 df2009 <- df %>% 
   filter(ibge %in% df_ibge_2009$ibge,
-         Ano >= 2009, 
+         Ano >= 2010, 
          !is.na(ibge)) %>% 
   mutate(Data = as.Date(Data))%>% #Adicionar datas posteriores
   mutate("d_4a" = as.Date(ifelse(Data-1461 < min(Data), NA, Data-1461)),
@@ -505,7 +539,6 @@ df2009_al_reduzido <- df2009 %>%
 
 rm(df, df_ibge_2009)
 saveRDS(df2009, file = here("Dados/df2009.RDS"))
-
 ```
 
 ```{r, 'loop_novas_colunas'}
@@ -517,13 +550,6 @@ novas_colunas <- c("t_4a", "c_4a", "t_1a", "c_1a", "t_90", "c_90", "t_30", "c_30
 ncdf <- data.frame(matrix(nrow = 0, ncol = length(novas_colunas)))
 
 colnames(ncdf) <- novas_colunas
-
-#Listando os municípios que passam pelo tratamento (desastres):
-
-nome_munic <- df2009_desastres %>%
-  select(ibge) %>% 
-  distinct()
-
 
 for (i in 1: nrow(df2009_desastres)){
   #30 DIAS --------------------------------------------------------------
@@ -782,7 +808,7 @@ rm(df2009_desastres)
 ```{r, 'reg30'}
 
 df_dd<- readRDS(here("Dados/df_dd.RDS"))
-
+n_distinct(df_dd$ibge)
 #30 dias
 df_dd30 <- df_dd %>% 
   filter(Periodo == 30) 
@@ -991,4 +1017,27 @@ ggregT <- vregT %>%
   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
 
 ggregT
+```
+
+## 5. Mapa dos municípios da amostra:
+
+```{r}
+#Listando os municípios que passam pelo tratamento (desastres):
+
+nome_munic <- readRDS(here('Dados/df_dd.RDS')) %>%
+  distinct(ibge)
+
+mapa_munic <- data.frame(code_muni = integer(), geom = list())
+
+
+for (i in nome_munic$ibge){
+  munic_mapa <- read_municipality(code_muni=i, year=2022)%>% 
+    select(code_muni, geom)
+  
+  mapa_munic <- bind_rows(mapa_munic, munic_mapa)
+  
+}
+
+str(mapa_munic)
+summary(mapa_munic)
 ```
