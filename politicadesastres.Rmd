@@ -173,8 +173,7 @@ MapBiomas <- MapBiomas %>%
 mMapBiomas <- MapBiomas %>% 
   select(Bioma, Município, UF, ibge, Ano) %>% 
   distinct(ibge, Município, UF, Ano, .keep_all = TRUE) %>% #remove casos em que há dois biomas no mesmo município e ano
-  mutate(ibge = as.character(ibge)) %>% 
-
+  mutate(ibge = as.character(ibge)) 
 #Costeiro
 
 Costeiro <- Costeiro %>% 
@@ -186,7 +185,7 @@ Costeiro <- Costeiro %>%
 
 #IDH
 IDHM2010 <- IDHM2010 %>% 
-  select(Territorialidade, IDHM) %>% 
+  select(Territorialidade, IDHM_2010) %>% 
   mutate(UF = str_extract(Territorialidade, "\\((.*?)\\)"),
          Territorialidade = stri_trans_general(sub(" \\(.*", "", `Territorialidade`), "latin-ascii")) %>%
   mutate(Territorialidade = firstup(stri_trans_general(Territorialidade, "latin-ascii")),
@@ -264,7 +263,6 @@ df <- df %>% #Remove valores que não estão na primeira coluna
 #Juntando os dados de desastres e projetos. 
 df <- merge(df, dfal, by = c("Ano", "Data", "ibge", "Municipio", "Município", "UF", "regiao", "Bioma", "Costeiro", "Decil populacional"), all = T) %>%
   mutate(Data =  str_replace(as.character(Data), "^[^-]+", as.character(Ano))) %>%
-  filter(Ano <= 2022) %>% 
   arrange(Data) %>% 
   mutate(TDesastre = ifelse(is.na(Desastre), FALSE, TRUE),
          Data = as.Date(Data)) %>% 
@@ -284,8 +282,8 @@ df <- readRDS(here("Dados/df.RDS"))
 ```
 
 ```{r, n_biomas}
-#df_desastres <- df_desastres %>% 
-  #filter(TDesastre == TRUE)  
+df_desastres <- df %>% 
+  filter(TDesastre == TRUE)  
 
 p_df <- df_desastres %>%  
   group_by(Desastre, Bioma) %>%
@@ -390,7 +388,7 @@ plot(fig3)
 ## 2.2 Descritivo Atividade Legislativa das Câmaras Municipais
 
 ```{r 'N_cidades_ano'}
-#mCidadesAl <- readRDS(file = here("Dados/mCidadesAL.RDS"))
+mCidadesAl <- readRDS(file = here("Dados/mCidadesAL.RDS"))
 # Calcula quantas cidades aparecem em cada ano:
 presence <- mCidadesAl %>%
   group_by(Ano, Município) %>%
@@ -518,7 +516,6 @@ df_ibge_2013 <- df %>%
 
 df2013 <- df %>% 
   filter(ibge %in% df_ibge_2013$ibge,
-         Ano >= 2013, 
          !is.na(ibge)) %>% 
   mutate(Data = as.Date(Data))%>% #Adicionar datas posteriores
   mutate("d_4a" = as.Date(ifelse(Data-1461 < min(Data), NA, Data-1461)),
@@ -529,6 +526,7 @@ df2013 <- df %>%
          "d90" = as.Date(ifelse(Data+90 < min(Data), NA, Data+90)),
          "d1a" = as.Date(ifelse(Data+365 < min(Data), NA, Data+365)),
          "d4a" = as.Date(ifelse(Data+1461 < min(Data), NA, Data+1461)))
+
 
 #Dataframe Desastres
 df2013_desastres <- df2013 %>% 
@@ -774,7 +772,7 @@ saveRDS(df2013_desastres, file = here("Dados/df2013_desastres.RDS"))
 #df2013_desastres <- readRDS(here("Dados/df2013_desastres.RDS"))
 
 df_dd <- df2013_desastres %>% 
-  select(ibge, Data, Ano, Bioma, Costeiro, Populacao_2022, IDHM, t_4a, c_4a, t_1a, c_1a, t_90, c_90, t_30, c_30, t30, c30, t90, c90, t1a, c1a, t4a,c4a)  %>% 
+  select(ibge, Data, Ano, Bioma, Costeiro, Populacao_2022, IDHM_2010, t_4a, c_4a, t_1a, c_1a, t_90, c_90, t_30, c_30, t30, c30, t90, c90, t1a, c1a, t4a,c4a)  %>% 
   pivot_longer(
     cols = c(t_4a, c_4a, t_1a, c_1a, t_90, c_90, t_30, c_30, t30, c30, t90, c90, t1a, c1a, t4a,c4a),  # Seleciona as colunas a serem pivotadas
     names_to = "Codigo_tratamento",       # Coluna nova
@@ -786,7 +784,9 @@ df_dd <- df2013_desastres %>%
     Tempo = ifelse(grepl("_", Codigo_tratamento), 0, 1), # Checa se contêm "_"
     Periodo = substr(Codigo_tratamento, nchar(Codigo_tratamento) - 1, nchar(Codigo_tratamento))  # Extrai o resto
   ) %>% 
-  filter(!is.na(agenda_clima)) %>% 
+  filter(!is.na(agenda_clima),
+         Ano >= 2014, 
+         Ano <= 2022) %>% 
   mutate("Ambiente" = paste(Bioma, Costeiro, sep = "_")) %>% 
   select(-(c(Bioma, Costeiro))) 
 
@@ -833,6 +833,127 @@ saveRDS(df_dd, file = here("Dados/df_dd.RDS"))
 rm(df, estacao, df2013_sum, df_propensao, df_contagem)
 ```
 
+## Gráficos da base de dados df_dd
+
+```{r, base_graficos}
+df2013grafs <- df2013 %>%
+  filter(Ano > 2013,
+         Ano <= 2022) %>% 
+  mutate(Tipo_Projeto = case_when(
+    Tipo_Projeto == "Indicacoes" ~ "Indicacao",
+    Tipo_Projeto == "Pedido de providencias" ~ "Pedido de providencia",
+    Tipo_Projeto == "Projeto de lei" ~ "Projeto de lei ordinaria",
+    .default = as.character(Tipo_Projeto)))
+
+
+
+```
+
+```{r, grafico_desastres}
+
+tipdesastre <-df2013grafs %>%
+  filter(TDesastre == T) %>% 
+  group_by(Desastre, Ano) %>% 
+  summarise(n_al = n()) %>% 
+  group_by(Ano) %>%
+  mutate(p_al = n_al / sum(n_al))%>% 
+  mutate(Desastre = ifelse(n_al < 18 | p_al < 0.08, "Outros", Desastre),
+         Ano = as.character(Ano))
+
+fig7 <- tipdesastre %>% 
+  ggplot(aes( x = `Ano`, y = n_al, fill = Desastre)) + 
+  geom_bar(stat = "identity")+ 
+  theme_linedraw()+
+  labs(title = "Distribuição dos tipos de desastre na seleção do SAPL, por ano")+
+  scale_fill_brewer(palette = "Dark2")+
+  ylab('Número de desastres registrados')
+
+plot(fig7)
+```
+
+```{r, grafico projetos}
+
+tiproj <-df2013grafs %>%
+  filter(TDesastre == F, 
+         projetoclima == T) %>% 
+  group_by(Tipo_Projeto, Ano) %>% 
+  summarise(n_al = n()) %>% 
+  group_by(Ano) %>%
+  mutate(p_al = n_al / sum(n_al))%>% 
+  mutate(Tipo_Projeto = ifelse(p_al < 0.025 | n_al < 5, "Outros", Tipo_Projeto),
+         Ano = as.character(Ano))
+
+fig8 <- tiproj %>% 
+  ggplot(aes( x = `Ano`, y = n_al, fill = Tipo_Projeto)) + 
+  geom_bar(stat = "identity")+ 
+  theme_linedraw()+
+  labs(title = "Distribuição dos tipos de documentos na seleção do SAPL, por ano")+
+  scale_fill_brewer(palette = "Dark2")+
+  ylab('Número de documentos')
+
+plot(fig8)
+```
+
+```{r}
+
+tipdesastre_bioma <-df2013grafs %>%
+  filter(TDesastre == T) %>% 
+  mutate(Bioma_Costeiro = paste(Bioma, Costeiro, sep = "_")) %>% 
+  group_by(Desastre, Bioma_Costeiro, Ano) %>% 
+  summarise(n_al = n()) %>% 
+  group_by(Ano) %>%
+  mutate(p_al = n_al / sum(n_al))
+
+fig11 <- tipdesastre_bioma %>% 
+  ggplot(aes( x = `Ano`, y = n_al, fill = Desastre)) + 
+  geom_bar(stat = "identity")+ 
+  theme_linedraw()+
+  labs(title = "Distribuição dos tipos de desastre na seleção do SAPL, por ano")+
+  ylab('Número de desastres registrados')+
+  scale_x_continuous(breaks = c(2014, 2018, 2022))+
+  facet_wrap(.~ Bioma_Costeiro)
+
+plot(fig11)
+```
+
+```{r}
+tipdesastre_estacao <-df2013grafs %>% 
+  filter(TDesastre == T) %>% 
+  mutate(Estacao = case_when(
+    (month(Data) == 12 & day(Data) >= 21)|
+      (month(Data) == 1 & day(Data) >= 1) | 
+      (month(Data) == 2) | 
+      (month(Data) == 3 & day(Data) < 20) ~ "Verão",
+    (month(Data) == 3 & day(Data) >= 20) | 
+      (month(Data) == 4) |
+      (month(Data) == 5) |
+      (month(Data) == 6 & day(Data) < 21) ~ "Outono",
+    (month(Data) == 6 & day(Data) >= 21) | 
+      (month(Data) == 7) |
+      (month(Data) == 8) |
+      (month(Data) == 9 & day(Data) < 23) ~ "Inverno",
+    (month(Data) == 9 & day(Data) >= 23) | 
+      (month(Data) == 10) |
+      (month(Data) == 11) |
+      (month(Data) == 12 & day(Data) < 21) ~ "Primavera",
+    TRUE ~ "Desconhecida" )) %>% 
+  group_by(Desastre, Estacao, Ano) %>% 
+  summarise(n_al = n()) %>% 
+  group_by(Ano) %>%
+  mutate(p_al = n_al / sum(n_al))
+
+fig12 <- tipdesastre_estacao %>% 
+  ggplot(aes( x = `Ano`, y = n_al, fill = Desastre)) + 
+  geom_bar(stat = "identity")+ 
+  theme_linedraw()+
+  labs(title = "Distribuição dos tipos de desastre na seleção do SAPL, por ano e estação")+
+  ylab('Número de desastres registrados')+
+  scale_x_continuous(breaks = c(2014, 2018, 2022))+
+  facet_wrap(.~ Estacao)
+
+plot(fig12)
+```
+
 ## Fazendo a regressão Diff-in-Diff
 
 ### 30 dias
@@ -847,10 +968,10 @@ df_dd30 <- df_dd %>%
 
 #Fazendo a regressão:
   #Colocar multiplicação (*) entre dummy de tratamento e tempo para diff-in-diff:
-reg30 <- lm(agenda_clima ~ Tratamento*Tempo + Tratamento + Tempo + Ambiente + Estacao + Populacao_2022 + IDHM + propensao, data = df_dd30)
+reg30 <- lm(agenda_clima ~ Tratamento*Tempo + Tratamento + Tempo + Ambiente + Estacao + Populacao_2022 + IDHM_2010 + propensao, data = df_dd30)
 
 #+ Ambiente + Populacao_2022 + IDHM + Propensão + Estacao
-stargazer(reg30,title="Tabela de Regressão 1: Período de 30 dias", single.row=TRUE, ci=TRUE, ci.level=0.5)
+stargazer(reg30,title="Período de 30 dias", single.row=TRUE, ci=TRUE, ci.level=0.5)
 ```
 
 ```{r, 'ggplot_reg30'}
@@ -908,10 +1029,10 @@ df_dd90 <- df_dd %>%
 
 #Fazendo a regressão:
   #Colocar multiplicação (*) entre dummy de tratamento e tempo para diff-in-diff:
-reg90 <- lm(agenda_clima ~ Tratamento*Tempo + Tratamento + Tempo + Ambiente + Estacao + Populacao_2022 + IDHM + propensao, data = df_dd90)
+reg90 <- lm(agenda_clima ~ Tratamento*Tempo + Tratamento + Tempo + Ambiente + Estacao + Populacao_2022 + IDHM_2010 + propensao, data = df_dd90)
 
 #+ Ambiente + Populacao_2022 + IDHM + Propensão + Estacao
-stargazer(reg90,title="Tabela de Regressão 2: Período de 90 dias", single.row=TRUE, ci=TRUE, ci.level=0.5)
+stargazer(reg90,title="Período de 90 dias", single.row=TRUE, ci=TRUE, ci.level=0.5)
 ```
 
 ```{r, 'ggplot_reg90'}
@@ -968,9 +1089,9 @@ df_dd1a <- df_dd %>%
 
 #Fazendo a regressão:
   #Colocar multiplicação (*) entre dummy de tratamento e tempo para diff-in-diff:
-reg1a <- lm(agenda_clima ~ Tratamento*Tempo + Tratamento + Tempo + Ambiente + Estacao + Populacao_2022 + IDHM + propensao, data = df_dd1a)
+reg1a <- lm(agenda_clima ~ Tratamento*Tempo + Tratamento + Tempo + Ambiente + Estacao + Populacao_2022 + IDHM_2010 + propensao, data = df_dd1a)
 #+ Ambiente + Populacao_2022 + IDHM + Estacao + Propensao
-stargazer(reg1a,title="Tabela de Regressão 3: Período de 1 ano", single.row=TRUE, ci=TRUE, ci.level=0.5)
+stargazer(reg1a,title="Período de 1 ano", single.row=TRUE, ci=TRUE, ci.level=0.5)
 ```
 
 ```{r, 'ggplot_reg1a'}
@@ -1028,9 +1149,9 @@ df_dd4a <- df_dd %>%
 
 #Fazendo a regressão:
   #Colocar multiplicação (*) entre dummy de tratamento e tempo para diff-in-diff:
-reg4a <- lm(agenda_clima ~ Tratamento*Tempo + Tratamento + Tempo + Ambiente + Estacao + Populacao_2022 + IDHM + propensao, data = df_dd4a)
+reg4a <- lm(agenda_clima ~ Tratamento*Tempo + Tratamento + Tempo + Ambiente + Estacao + Populacao_2022 + IDHM_2010 + propensao, data = df_dd4a)
 #+ Ambiente + Populacao_2022 + IDHM + Estacao + Propensao
-stargazer(reg4a,title="Tabela de Regressão 4: Período de 4 anos", single.row=TRUE, ci=TRUE, ci.level=0.5)
+stargazer(reg4a,title="Período de 4 anos", single.row=TRUE, ci=TRUE, ci.level=0.5)
 ```
 
 ```{r, 'ggplot_reg4a'}
@@ -1068,7 +1189,7 @@ ggreg4a <- vreg4a %>%
   scale_color_brewer(palette = "Dark2")+
   scale_x_continuous(breaks = c(-1, 0, 1),  # Set custom breaks for x-axis
                      labels = c("-4 anos", "Tratamento", "+4 anos"))+
-  ylim(-3,max(vreg4a$Valor)+2*max(vreg4a$std.error))
+  ylim(-4,max(vreg4a$Valor)+2*max(vreg4a$std.error))
 
 ggreg4a
 ```
@@ -1076,6 +1197,79 @@ ggreg4a
 ```{r 'Checagem_lm_reg4a'}
 #Checando os pressupostos
 check_reg4a <- check_model(reg4a)
+```
+
+```{r, juntando_vregdfs}
+# Adiciona coluna com nomes
+vreg30 <- mutate(vreg30, Período = "30 dias")
+vreg90 <- mutate(vreg90, Período = "90 dias")
+vreg1a <- mutate(vreg1a, Período = "1 ano")
+vreg4a <- mutate(vreg4a, Período = "4 anos")
+
+# Combine the dataframes using bind_rows
+vregdfs <- bind_rows(vreg30, vreg90, vreg1a, vreg4a)
+
+
+```
+
+```{r, factegrid_efeitos}
+
+vregdfs$Período <- factor(vregdfs$Período, levels = c("30 dias", "90 dias", "1 ano", "4 anos"))
+
+#Criando Facet Grid
+ggregdfs <- vregdfs %>% 
+  ggplot(aes(x = Tempo, y = Valor, color = Tratamento, group = Tratamento))+
+  geom_point(size = 1)+
+  geom_errorbar(aes(ymin = Valor - 1.96 * std.error, ymax = Valor + 1.96 * std.error, width = 0.3)) +
+  geom_line()+
+  geom_vline(xintercept = 0, linetype = "dashed")+
+  geom_hline(yintercept = 0)+
+  theme_linedraw()+
+  labs(title = "Diff-in-Diffs",
+       x = "Tempo em relação ao tratamento",
+       y = "Nº médio de projetos climáticos")+
+  scale_color_brewer(palette = "Dark2")+
+  scale_x_continuous(breaks = c(-1, 0, 1),  # Set custom breaks for x-axis
+                      labels = c("Antes", "Tratamento", "Depois"))+
+  ylim(min(vregdfs$Valor)-2*max(vregdfs$std.error), max(vregdfs$Valor)+max(vregdfs$std.error))+
+  facet_grid(.~ Período, scales = "free_x", switch = "x") +  #
+  theme(legend.position = "bottom")  
+
+ggregdfs
+
+```
+
+```{r, teste de hipóteses}
+broom::tidy(reg4a) %>% 
+  filter(term %in% c("(Intercept)", "Tratamento", "Tempo", "Tratamento:Tempo")) %>% 
+  mutate(Valor = case_when(
+    term == "(Intercept)" ~ estimate,
+    term == "Tempo" ~ estimate + reg30$coefficients[1],
+    term == "Tratamento" ~ estimate + reg30$coefficients[1],
+    term == "Tratamento:Tempo" ~ estimate + reg30$coefficients[1] + reg30$coefficients["Tempo"] + reg30$coefficients["Tratamento"] + reg30$coefficients["Tratamento:Tempo"]),
+         Tratamento = case_when(
+           term == "(Intercept)" ~ "Controle",
+           term == "Tempo" ~ "Controle",
+           term == "Tratamento" ~ "Tratamento",
+           term == "Tratamento:Tempo" ~ "Tratamento"),
+         Tempo = case_when(
+           term == "(Intercept)" ~ -1,
+           term == "Tempo" ~ 1,
+           term == "Tratamento" ~ -1,
+           term == "Tratamento:Tempo" ~ 1)) 
+
+fig10 <-  ggplot(vregdfs, aes(x = term, y = estimate)) +
+  geom_point() +
+  geom_errorbar(aes(ymin = estimate - 1.96 * std.error, ymax = estimate + 1.96 * std.error), width = 0.2) +
+  geom_hline(yintercept = 0)+
+  labs(title = "Coeficientes do Modelo de Regressão",
+       x = "Preditor",
+       y = "Estimativa do Coeficiente") +
+  theme_linedraw()+
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))+
+  facet_grid(.~ Período)
+
+fig10
 ```
 
 ### Visualizando linha do tempo
@@ -1089,10 +1283,10 @@ vregT <- df_dd %>%
   mutate("Tempo" = ifelse(Tempo == 0, -1, 1),
          "Tratamento" = ifelse(Tratamento == 0, "Controle", "Tratado"),
          "Periodo" = case_match(Periodo,
-                                "30" ~ 30, 
-                                "90" ~ 90,
-                                "1a" ~ 365,
-                                "4a" ~ 1461)) %>% 
+                                "30 dias" ~ 30, 
+                                "90 dias" ~ 90,
+                                "1 ano" ~ 365,
+                                "4 anos" ~ 1461)) %>% 
   mutate("Tempo_P" = Tempo*Periodo,
          "média_n_projetos" = ifelse(Periodo != 1, média_n_projetos*(30/Periodo), média_n_projetos))
 
@@ -1121,11 +1315,15 @@ ggregT
 nome_munic <- readRDS(here('Dados/df_dd.RDS')) %>%
   distinct(ibge)
 
-mapa_munic <- data.frame(code_muni = integer(), geom = list())
+mapa_brasil <- read_municipality(year = 2022)
+
+mapa_munic <- read_municipality(code_muni=nome_munic$ibge[1], year=2022)%>% 
+    select(code_muni, geom)
 
 
-for (i in nome_munic$ibge){
-  munic_mapa <- read_municipality(code_muni=i, year=2022)%>% 
+for (i in 2:length(nome_munic$ibge)){
+    j <- nome_munic$ibge[i]
+  munic_mapa <- read_municipality(code_muni=j, year=2022)%>% 
     select(code_muni, geom)
   
   mapa_munic <- bind_rows(mapa_munic, munic_mapa)
@@ -1134,4 +1332,25 @@ for (i in nome_munic$ibge){
 
 str(mapa_munic)
 summary(mapa_munic)
+```
+
+```{r, mapa_ndesastres}
+ggplot() +
+  geom_sf(data=dataset_final, aes(fill=IDHM), color= NA, size=.15)+
+  labs(title="IDHM 2013 (ano base 2010) dos Municipíos de MS",
+       caption='Fonte: Elaboração própria', size=8)+
+  scale_fill_distiller(palette = "Greens", limits=c(0.5, 0.8),
+                       name="Code_muni")+
+  theme_minimal()
+```
+
+```{r}
+mapa_sapl <- ggplot() +
+  geom_sf(data=mapa_brasil, alpha = 0.5, fill= "#666666", color = NA, size= .15)+
+  geom_sf(data=mapa_munic, fill= "#D95F02", size=.15)+
+  labs(title="Mapa dos Municípios do SAPL selecionados",
+       caption='Fonte: Elaboração própria', size=8)+
+  theme_linedraw()
+
+mapa_sapl
 ```
