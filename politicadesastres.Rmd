@@ -15,7 +15,8 @@ library(performance)
 library(plm)
 library(geobr)
 library(sf)
-
+library(lubridate)
+library(stargazer)
 
 firstup = function(x){
     stri_trans_general(paste(toupper(substring(x, 1, 1)),
@@ -283,7 +284,7 @@ df <- readRDS(here("Dados/df.RDS"))
 ```
 
 ```{r, n_biomas}
-#df_desastres <- readRDS(here("Dados/df.RDS")) %>% 
+#df_desastres <- df_desastres %>% 
   #filter(TDesastre == TRUE)  
 
 p_df <- df_desastres %>%  
@@ -441,32 +442,35 @@ plot(fig5)
 
 ```{r, 'Tabela_contagem_AL_tempo'}
 #Caso df não esteja carreagado:
-df <- readRDS(here("Dados/df.RDS"))
+df <- readRDS(here("Dados/df.RDS")) 
 
+df2 <- df %>% 
+  filter(TDesastre == F)
+  
 df_contagem <- data.frame(Ano = c(),  n_municipios = c(), AL_Ano = c(), AL_pos_ano = c()) #Tabela para contagem
-Anos <- df %>% distinct(Ano) #Anos no dataframe df
+Anos <- df2 %>% distinct(Ano) #Anos no dataframe df
 
 #Loop para criar tabela comparando número de observações por ano:
 for (i in min(Anos):max(Anos)){
   #Cria uma variável com o número de observações no ano i selecionado
-  dfano <- df %>% 
+  dfano <- df2 %>% 
     filter(Ano == i)
   #Cria uma variável com o código de municípios distintos no ano
   ctm_municipios <- dfano %>% 
     distinct(ibge) 
   #Cria uma variável com todos registros dos municípios presentes no ano "i" nos anos posteriores
-  dfanomais <- df %>% 
+  dfanomais <- df2 %>% 
     filter(Ano >= i,
            ibge %in% ctm_municipios$ibge)
   
   #Criando linha do dataframe para o ano
-  df_ctm <- data.frame("Ano" = i, "n_municipios" = nrow(ctm_municipios), "AL_Ano" = nrow(dfano), "AL_pos_ano" = nrow(dfanomais))
+  df_ctm <- data.frame("Ano" = i, "n_municipios" = n_distinct(ctm_municipios), "AL_Ano" = nrow(dfano), "AL_pos_ano" = nrow(dfanomais))
   
   #Juntando à tabela principal
   df_contagem <- bind_rows(df_contagem, df_ctm)  
 }
 
-rm(Anos, dfano, ctm_municipios, dfanomais, df_ctm, i)
+rm(Anos, dfano, ctm_municipios, dfanomais, df_ctm, i, df2)
 ```
 
 ```{r, 'plotando_contagem_tempo'}
@@ -474,10 +478,10 @@ rm(Anos, dfano, ctm_municipios, dfanomais, df_ctm, i)
 # Criar o gráfico
 fig6 <- ggplot(df_contagem, aes(x = Ano)) +
   # Adicionar o gráfico de barras para "n_municipios"
-  geom_bar(aes(y = n_municipios), stat = "identity", fill = "#7570B3") +
+  geom_bar(aes(y = n_municipios), stat = "identity", fill = "#1B9E77") +
   # Adicionar o gráfico de linha para "AL_pos_ano"
   geom_line(aes(y = AL_pos_ano * (max(df_contagem$n_municipios) / max(df_contagem$AL_pos_ano)))) +
-  geom_vline(xintercept = 2009, linetype = "dashed")+
+  geom_vline(xintercept = 2013, linetype = "dashed")+
   # Adicionar eixos duplos
   scale_y_continuous(
     name = "Número de Municípios",
@@ -490,12 +494,10 @@ fig6 <- ggplot(df_contagem, aes(x = Ano)) +
   theme_linedraw()+
   labs(title = "Figura 6 - Nº de municípios na base de dados por ano x Total de registros nos anos subsequentes")+
   theme(title = element_text(size = 9),
-        axis.text.y.left = element_text(color = "#7570B3", face = "bold", size = 10),   # Cor do texto do eixo Y à esquerda
-        axis.title.y.left = element_text(color = "#7570B3", face = "bold"))   # Cor do título do eixo Y à esquerda
+        axis.text.y.left = element_text(color = "#1B9E77", size = 10),   # Cor do texto do eixo Y à esquerda
+        axis.title.y.left = element_text(color = "#1B9E77"))   # Cor do título do eixo Y à esquerda
 
 
-
-rm(df_contagem)
 # Exibir o gráfico
 print(fig6)
 
@@ -507,15 +509,16 @@ print(fig6)
 #Caso df não esteja carreagado:
 df <- readRDS(here("Dados/df.RDS"))
 
-#Escolhi 2009 como ano de corte
-df_ibge_2009 <- df %>% 
-  filter(Ano == 2009) %>% 
+#Escolhi 2013 como ano de corte
+df_ibge_2013 <- df %>% 
+  filter(TDesastre == F) %>%
+  filter(Ano == 2013) %>% 
   select(ibge) %>% 
   distinct()
 
-df2009 <- df %>% 
-  filter(ibge %in% df_ibge_2009$ibge,
-         Ano >= 2010, 
+df2013 <- df %>% 
+  filter(ibge %in% df_ibge_2013$ibge,
+         Ano >= 2013, 
          !is.na(ibge)) %>% 
   mutate(Data = as.Date(Data))%>% #Adicionar datas posteriores
   mutate("d_4a" = as.Date(ifelse(Data-1461 < min(Data), NA, Data-1461)),
@@ -527,18 +530,28 @@ df2009 <- df %>%
          "d1a" = as.Date(ifelse(Data+365 < min(Data), NA, Data+365)),
          "d4a" = as.Date(ifelse(Data+1461 < min(Data), NA, Data+1461)))
 
-
 #Dataframe Desastres
-df2009_desastres <- df2009 %>% 
+df2013_desastres <- df2013 %>% 
   filter(TDesastre == T) 
 
 #Dataframe Atividade Legislativa
-df2009_al_reduzido <- df2009 %>% 
+df2013_al_reduzido <- df2013 %>% 
   filter(TDesastre == F, 
          projetoclima == T) 
 
-rm(df, df_ibge_2009)
-saveRDS(df2009, file = here("Dados/df2009.RDS"))
+#Dataframe Lista de Municípios
+df2013_sum <- df2013 %>% 
+  group_by(ibge, Município, UF, TDesastre) %>% 
+  summarise(n = n()) %>% 
+  pivot_wider(names_from = TDesastre, values_from = n) %>% 
+  rename("N_Desastres" = "TRUE",
+         "N_Documentos" = "FALSE") %>% 
+  mutate(N_Documentos = ifelse(is.na(N_Documentos), 0, N_Documentos),
+         N_Desastres = ifelse(is.na(N_Desastres), 0, N_Desastres))
+
+rm(df, df_ibge_2013)
+saveRDS(df2013, file = here("Dados/df2013.RDS"))
+write_csv(df2013_sum, file =  here("Dados/df2013_sumario.csv"))
 ```
 
 ```{r, 'loop_novas_colunas'}
@@ -551,51 +564,50 @@ ncdf <- data.frame(matrix(nrow = 0, ncol = length(novas_colunas)))
 
 colnames(ncdf) <- novas_colunas
 
-for (i in 1: nrow(df2009_desastres)){
+for (i in 1: nrow(df2013_desastres)){
   #30 DIAS --------------------------------------------------------------
     #Tratamento
       #Antes
         #Municípios COM desastres no mesmo dia:
-    
-  t_30 <- df2009_al_reduzido %>% 
+  
+  t_30 <- df2013_al_reduzido %>% 
     filter(projetoclima == TRUE,
-         Data >= df2009_desastres[i, "d_30"],
-         Data < df2009_desastres[i, 'Data'],
-         ibge == df2009_desastres[i, 'ibge']) %>% 
+         Data >= df2013_desastres[i, "d_30"],
+         Data < df2013_desastres[i, 'Data'],
+         ibge == df2013_desastres[i, 'ibge']) %>% 
   nrow()
+  
       #Depois
-  t30 <- df2009_al_reduzido %>% 
+  t30 <- df2013_al_reduzido %>% 
     filter(projetoclima == TRUE,
-         Data <= df2009_desastres[i, "d30"],
-         Data > df2009_desastres[i, 'Data'],
-         ibge == df2009_desastres[i, 'ibge']) %>% 
+         Data <= df2013_desastres[i, "d30"],
+         Data > df2013_desastres[i, 'Data'],
+         ibge == df2013_desastres[i, 'ibge']) %>% 
     nrow()
   
     #Controle
   #PROBLEMA A SER OBSERVADO: POR SER MÉDIA, UNIDADE DE CONTROLE TAMBÉM TEM DISTRIBUIÇÃO E ERRO. -> DEPOIS FAZER COM DISTRIBUIÇÃO DE TODOS OS CONTROLES. 
       #Antes
         #Nº de projetos
-  c_30l <- df2009_al_reduzido %>% 
+  c_30l <- df2013_al_reduzido %>% 
     filter(projetoclima == TRUE,
-         Data >= df2009_desastres[i, "d_30"],
-         Data < df2009_desastres[i, 'Data'],
-         ibge != df2009_desastres[i, 'ibge']) %>% 
-  nrow()
-
+         Data >= df2013_desastres[i, "d_30"],
+         Data < df2013_desastres[i, 'Data'],
+         ibge != df2013_desastres[i, 'ibge']) 
+  
         #Média
-  c_30 <- c_30l/nrow(nome_munic)
+  c_30 <- nrow(c_30l)/n_distinct(df2013_al_reduzido$ibge)
   
       #Depois
         #Nº de projetos
-  c30l <- df2009_al_reduzido %>% 
+  c30l <- df2013_al_reduzido %>% 
     filter(projetoclima == TRUE,
-         Data <= df2009_desastres[i, "d30"],
-         Data > df2009_desastres[i, 'Data'],
-         ibge != df2009_desastres[i, 'ibge']) %>% 
-  nrow()
+         Data <= df2013_desastres[i, "d30"],
+         Data > df2013_desastres[i, 'Data'],
+         ibge != df2013_desastres[i, 'ibge']) 
 
         #Média
-  c30<- c30l/nrow(nome_munic)
+  c30 <- nrow(c30l)/n_distinct(df2013_al_reduzido$ibge)
   
 
   #90 DIAS --------------------------------------------------------------
@@ -603,135 +615,128 @@ for (i in 1: nrow(df2009_desastres)){
       #Antes
         #Municípios COM desastres no mesmo dia:
     
-  t_90 <- df2009_al_reduzido %>% 
+  t_90 <- df2013_al_reduzido %>% 
     filter(projetoclima == TRUE,
-         Data >= df2009_desastres[i, "d_90"],
-         Data < df2009_desastres[i, 'Data'],
-         ibge == df2009_desastres[i, 'ibge']) %>% 
+         Data >= df2013_desastres[i, "d_90"],
+         Data < df2013_desastres[i, 'Data'],
+         ibge == df2013_desastres[i, 'ibge']) %>% 
   nrow()
       #Depois
-  t90 <- df2009_al_reduzido %>% 
+  t90 <- df2013_al_reduzido %>% 
     filter(projetoclima == TRUE,
-         Data <= df2009_desastres[i, "d90"],
-         Data > df2009_desastres[i, 'Data'],
-         ibge == df2009_desastres[i, 'ibge']) %>% 
+         Data <= df2013_desastres[i, "d90"],
+         Data > df2013_desastres[i, 'Data'],
+         ibge == df2013_desastres[i, 'ibge']) %>% 
     nrow()
   
     #Controle
   #PROBLEMA A SER OBSERVADO: POR SER MÉDIA, UNIDADE DE CONTROLE TAMBÉM TEM DISTRIBUIÇÃO E ERRO. -> DEPOIS FAZER COM DISTRIBUIÇÃO DE TODOS OS CONTROLES. 
       #Antes
         #Nº de projetos
-  c_90l <- df2009_al_reduzido %>% 
+  c_90l <- df2013_al_reduzido %>% 
     filter(projetoclima == TRUE,
-         Data >= df2009_desastres[i, "d_90"],
-         Data < df2009_desastres[i, 'Data'],
-         ibge != df2009_desastres[i, 'ibge']) %>% 
-  nrow()
+         Data >= df2013_desastres[i, "d_90"],
+         Data < df2013_desastres[i, 'Data'],
+         ibge != df2013_desastres[i, 'ibge']) 
 
         #Média
-  c_90 <- c_90l/nrow(nome_munic)
-  
+    c_90 <- nrow(c_90l)/n_distinct(df2013_al_reduzido$ibge)
+    
       #Depois
         #Nº de projetos
-  c90l <- df2009_al_reduzido %>% 
+  c90l <- df2013_al_reduzido %>% 
     filter(projetoclima == TRUE,
-         Data <= df2009_desastres[i, "d90"],
-         Data > df2009_desastres[i, 'Data'],
-         ibge != df2009_desastres[i, 'ibge']) %>% 
-  nrow()
+         Data <= df2013_desastres[i, "d90"],
+         Data > df2013_desastres[i, 'Data'],
+         ibge != df2013_desastres[i, 'ibge']) 
 
         #Média
-  c90<- c90l/nrow(nome_munic)
+  c90 <- nrow(c90l)/n_distinct(df2013_al_reduzido$ibge)
   
   #365 DIAS (1 ano) --------------------------------------------------------------
     #Tratamento
       #Antes
         #Municípios COM desastres no mesmo dia:
     
-  t_1a <- df2009_al_reduzido %>% 
+  t_1a <- df2013_al_reduzido %>% 
     filter(projetoclima == TRUE,
-         Data >= df2009_desastres[i, "d_1a"],
-         Data < df2009_desastres[i, 'Data'],
-         ibge == df2009_desastres[i, 'ibge']) %>% 
+         Data >= df2013_desastres[i, "d_1a"],
+         Data < df2013_desastres[i, 'Data'],
+         ibge == df2013_desastres[i, 'ibge']) %>% 
   nrow()
       #Depois
-  t1a <- df2009_al_reduzido %>% 
+  t1a <- df2013_al_reduzido %>% 
     filter(projetoclima == TRUE,
-         Data <= df2009_desastres[i, "d1a"],
-         Data > df2009_desastres[i, 'Data'],
-         ibge == df2009_desastres[i, 'ibge']) %>% 
+         Data <= df2013_desastres[i, "d1a"],
+         Data > df2013_desastres[i, 'Data'],
+         ibge == df2013_desastres[i, 'ibge']) %>% 
     nrow()
   
     #Controle
   #PROBLEMA A SER OBSERVADO: POR SER MÉDIA, UNIDADE DE CONTROLE TAMBÉM TEM DISTRIBUIÇÃO E ERRO. -> DEPOIS FAZER COM DISTRIBUIÇÃO DE TODOS OS CONTROLES. 
       #Antes
         #Nº de projetos
-  c_1al <- df2009_al_reduzido %>% 
+  c_1al <- df2013_al_reduzido %>% 
     filter(projetoclima == TRUE,
-         Data >= df2009_desastres[i, "d_1a"],
-         Data < df2009_desastres[i, 'Data'],
-         ibge != df2009_desastres[i, 'ibge']) %>% 
-  nrow()
+         Data >= df2013_desastres[i, "d_1a"],
+         Data < df2013_desastres[i, 'Data'],
+         ibge != df2013_desastres[i, 'ibge']) 
 
         #Média
-  c_1a <- c_1al/nrow(nome_munic)
-  
+  c_1a <- nrow(c_1al)/n_distinct(df2013_al_reduzido$ibge)
       #Depois
         #Nº de projetos
-  c1al <- df2009_al_reduzido %>% 
+  c1al <- df2013_al_reduzido %>% 
     filter(projetoclima == TRUE,
-         Data <= df2009_desastres[i, "d1a"],
-         Data > df2009_desastres[i, 'Data'],
-         ibge != df2009_desastres[i, 'ibge']) %>% 
-  nrow()
+         Data <= df2013_desastres[i, "d1a"],
+         Data > df2013_desastres[i, 'Data'],
+         ibge != df2013_desastres[i, 'ibge']) 
 
         #Média
-  c1a <- c1al/nrow(nome_munic)
+  c1a <- nrow(c1al)/n_distinct(df2013_al_reduzido$ibge)
   
   #1461 DIAS (4 anos) --------------------------------------------------------------
     #Tratamento
       #Antes
         #Municípios COM desastres no mesmo dia:
     
-  t_4a <- df2009_al_reduzido %>% 
+  t_4a <- df2013_al_reduzido %>% 
     filter(projetoclima == TRUE,
-         Data >= df2009_desastres[i, "d_4a"],
-         Data < df2009_desastres[i, 'Data'],
-         ibge == df2009_desastres[i, 'ibge']) %>% 
+         Data >= df2013_desastres[i, "d_4a"],
+         Data < df2013_desastres[i, 'Data'],
+         ibge == df2013_desastres[i, 'ibge']) %>% 
   nrow()
       #Depois
-  t4a <- df2009_al_reduzido %>% 
+  t4a <- df2013_al_reduzido %>% 
     filter(projetoclima == TRUE,
-         Data <= df2009_desastres[i, "d4a"],
-         Data > df2009_desastres[i, 'Data'],
-         ibge == df2009_desastres[i, 'ibge']) %>% 
+         Data <= df2013_desastres[i, "d4a"],
+         Data > df2013_desastres[i, 'Data'],
+         ibge == df2013_desastres[i, 'ibge']) %>% 
     nrow()
   
     #Controle
   #PROBLEMA A SER OBSERVADO: POR SER MÉDIA, UNIDADE DE CONTROLE TAMBÉM TEM DISTRIBUIÇÃO E ERRO. -> DEPOIS FAZER COM DISTRIBUIÇÃO DE TODOS OS CONTROLES. 
       #Antes
         #Nº de projetos
-  c_4al <- df2009_al_reduzido %>% 
+  c_4al <- df2013_al_reduzido %>% 
     filter(projetoclima == TRUE,
-         Data >= df2009_desastres[i, "d_4a"],
-         Data < df2009_desastres[i, 'Data'],
-         ibge != df2009_desastres[i, 'ibge']) %>% 
-  nrow()
+         Data >= df2013_desastres[i, "d_4a"],
+         Data < df2013_desastres[i, 'Data'],
+         ibge != df2013_desastres[i, 'ibge']) 
 
         #Média
-  c_4a <- c_4al/nrow(nome_munic)
+  c_4a <- nrow(c_4al)/n_distinct(df2013_al_reduzido$ibge)
   
       #Depois
         #Nº de projetos
-  c4al <- df2009_al_reduzido %>% 
+  c4al <- df2013_al_reduzido %>% 
     filter(projetoclima == TRUE,
-         Data <= df2009_desastres[i, "d4a"],
-         Data > df2009_desastres[i, 'Data'],
-         ibge != df2009_desastres[i, 'ibge']) %>% 
-  nrow()
+         Data <= df2013_desastres[i, "d4a"],
+         Data > df2013_desastres[i, 'Data'],
+         ibge != df2013_desastres[i, 'ibge']) 
 
         #Média
-  c4a<- c4al/nrow(nome_munic)
+  c4a <- nrow(c4al)/n_distinct(df2013_al_reduzido$ibge)
   
   # ---------------------------------------------------------------------------
   
@@ -741,7 +746,7 @@ for (i in 1: nrow(df2009_desastres)){
   ncdf <- bind_rows(ncdf, nova_linha)
 }
 
-df2009_desastres <- bind_cols(df2009_desastres, ncdf)%>% 
+df2013_desastres <- bind_cols(df2013_desastres, ncdf)%>% 
   mutate("t_4a" = ifelse(is.na(d_4a) | is.na(d4a), NA, t_4a),
          "t_1a" = ifelse(is.na(d_1a) | is.na(d1a), NA, t_1a),
          "t_90" = ifelse(is.na(d_90) | is.na(d90), NA, t_90),
@@ -762,12 +767,14 @@ df2009_desastres <- bind_cols(df2009_desastres, ncdf)%>%
 
 rm(i, t_4a, c_4a, c_4al, t_1a, c_1a, c_1al, t_90, c_90, c_90l, t_30, c_30, c_30l, t30, c30, c30l, t90, c90, c90l, t1a, c1a, c1al, t4a, c4a, c4al, nova_linha, novas_colunas, ncdf)
 
-saveRDS(df2009_desastres, file = here("Dados/df2009_desastres.RDS"))
+saveRDS(df2013_desastres, file = here("Dados/df2013_desastres.RDS"))
 ```
 
 ```{r, 'pivot_colunas_dd'}
-df_dd <- df2009_desastres %>% 
-  select(ibge, Data, Ano, Mês, Bioma, Costeiro, Populacao_2022, IDHM, t_4a, c_4a, t_1a, c_1a, t_90, c_90, t_30, c_30, t30, c30, t90, c90, t1a, c1a, t4a,c4a)  %>% 
+#df2013_desastres <- readRDS(here("Dados/df2013_desastres.RDS"))
+
+df_dd <- df2013_desastres %>% 
+  select(ibge, Data, Ano, Bioma, Costeiro, Populacao_2022, IDHM, t_4a, c_4a, t_1a, c_1a, t_90, c_90, t_30, c_30, t30, c30, t90, c90, t1a, c1a, t4a,c4a)  %>% 
   pivot_longer(
     cols = c(t_4a, c_4a, t_1a, c_1a, t_90, c_90, t_30, c_30, t30, c30, t90, c90, t1a, c1a, t4a,c4a),  # Seleciona as colunas a serem pivotadas
     names_to = "Codigo_tratamento",       # Coluna nova
@@ -780,25 +787,50 @@ df_dd <- df2009_desastres %>%
     Periodo = substr(Codigo_tratamento, nchar(Codigo_tratamento) - 1, nchar(Codigo_tratamento))  # Extrai o resto
   ) %>% 
   filter(!is.na(agenda_clima)) %>% 
-  mutate("Ambiente" = paste(Bioma, Costeiro, sep = "_"),
-         Mês = case_match(as.character(Mês),
-                          "1" ~ "Jan", 
-                          "2" ~ "Fev",
-                          "3" ~ "Mar", 
-                          "4" ~ "Abr",
-                          "5" ~ "Mai", 
-                          "6" ~"Jun",
-                          "7" ~ "Jul", 
-                          "8" ~ "Ago",
-                          "9" ~ "Set", 
-                          "10" ~ "Out",
-                          "11" ~ "Nov", 
-                          "12" ~ "Dez")) %>% 
-  select(-(c(Bioma, Costeiro)))
+  mutate("Ambiente" = paste(Bioma, Costeiro, sep = "_")) %>% 
+  select(-(c(Bioma, Costeiro))) 
+
+rm(df2013_desastres)
+```
+
+```{r, adicionando_estacao_propensao}
+
+#Adicionando estações
+df_dd <- df_dd %>%
+  mutate(Estacao = case_when(
+    (month(Data) == 12 & day(Data) >= 21)|
+      (month(Data) == 1 & day(Data) >= 1) | 
+      (month(Data) == 2) | 
+      (month(Data) == 3 & day(Data) < 20) ~ "Verão",
+    (month(Data) == 3 & day(Data) >= 20) | 
+      (month(Data) == 4) |
+      (month(Data) == 5) |
+      (month(Data) == 6 & day(Data) < 21) ~ "Outono",
+    (month(Data) == 6 & day(Data) >= 21) | 
+      (month(Data) == 7) |
+      (month(Data) == 8) |
+      (month(Data) == 9 & day(Data) < 23) ~ "Inverno",
+    (month(Data) == 9 & day(Data) >= 23) | 
+      (month(Data) == 10) |
+      (month(Data) == 11) |
+      (month(Data) == 12 & day(Data) < 21) ~ "Primavera",
+    TRUE ~ "Desconhecida" ))
+
+#Adicionando propensão
+df <- readRDS(here("Dados/df.RDS"))
+
+df_propensao <- df %>% 
+  filter(TDesastre == T) %>% 
+  group_by(ibge) %>% 
+  summarise(propensao = n())
+
+df_dd <- df_dd %>% 
+  left_join(df_propensao) %>% 
+  filter(Ano >= 2014) #corrigir ano aqui
 
 saveRDS(df_dd, file = here("Dados/df_dd.RDS"))
 
-rm(df2009_desastres)
+rm(df, estacao, df2013_sum, df_propensao, df_contagem)
 ```
 
 ## Fazendo a regressão Diff-in-Diff
@@ -808,30 +840,45 @@ rm(df2009_desastres)
 ```{r, 'reg30'}
 
 df_dd<- readRDS(here("Dados/df_dd.RDS"))
-n_distinct(df_dd$ibge)
+
 #30 dias
 df_dd30 <- df_dd %>% 
   filter(Periodo == 30) 
 
 #Fazendo a regressão:
   #Colocar multiplicação (*) entre dummy de tratamento e tempo para diff-in-diff:
-reg30 <- lm(agenda_clima ~ Tratamento*Tempo + Ambiente + Mês + Populacao_2022 + IDHM, data = df_dd30)
-#+ Ambiente + Mês + Populacao_2022 + IDHM
-summary(reg30)
+reg30 <- lm(agenda_clima ~ Tratamento*Tempo + Tratamento + Tempo + Ambiente + Estacao + Populacao_2022 + IDHM + propensao, data = df_dd30)
+
+#+ Ambiente + Populacao_2022 + IDHM + Propensão + Estacao
+stargazer(reg30,title="Tabela de Regressão 1: Período de 30 dias", single.row=TRUE, ci=TRUE, ci.level=0.5)
 ```
 
 ```{r, 'ggplot_reg30'}
 #Visualizando o efeito: 
 
-vreg30 <- df_dd30 %>% 
-  group_by(Tratamento, Tempo) %>% 
-  summarise("média_n_projetos" = mean(agenda_clima)) %>% 
-  mutate("Tempo" = ifelse(Tempo == 0, -1, 1),
-         "Tratamento" = ifelse(Tratamento == 0, "Controle", "Tratado"))
+vreg30 <- broom::tidy(reg30) %>% 
+  filter(term %in% c("(Intercept)", "Tratamento", "Tempo", "Tratamento:Tempo")) %>% 
+  mutate(Valor = case_when(
+    term == "(Intercept)" ~ estimate,
+    term == "Tempo" ~ estimate + reg30$coefficients[1],
+    term == "Tratamento" ~ estimate + reg30$coefficients[1],
+    term == "Tratamento:Tempo" ~ estimate + reg30$coefficients[1] + reg30$coefficients["Tempo"] + reg30$coefficients["Tratamento"] + reg30$coefficients["Tratamento:Tempo"]),
+         Tratamento = case_when(
+           term == "(Intercept)" ~ "Controle",
+           term == "Tempo" ~ "Controle",
+           term == "Tratamento" ~ "Tratamento",
+           term == "Tratamento:Tempo" ~ "Tratamento"),
+         Tempo = case_when(
+           term == "(Intercept)" ~ -1,
+           term == "Tempo" ~ 1,
+           term == "Tratamento" ~ -1,
+           term == "Tratamento:Tempo" ~ 1)) 
+
 
 ggreg30 <- vreg30 %>% 
-  ggplot(aes(x = Tempo, y=média_n_projetos, color = Tratamento, group = Tratamento))+
-  geom_point(size = 5)+
+  ggplot(aes(x = Tempo, y=Valor, color = Tratamento, group = Tratamento))+
+  geom_point(size = 1)+
+  geom_errorbar(aes(ymin = Valor - 1.96 * std.error, ymax = Valor + 1.96 * std.error, width = 0.3)) +
   geom_line()+
   geom_vline(xintercept = 0, linetype = "dashed")+
   theme_linedraw()+
@@ -840,7 +887,8 @@ ggreg30 <- vreg30 %>%
         y = "Nº médio de projetos climáticos")+
   scale_color_brewer(palette = "Dark2")+
   scale_x_continuous(breaks = c(-1, 0, 1),  # Set custom breaks for x-axis
-                     labels = c("-30 dias", "Tratamento", "+30 dias"))
+                     labels = c("-30 dias", "Tratamento", "+30 dias"))+
+  ylim(0,max(vreg30$Valor)+2*max(vreg30$std.error))
 
 ggreg30
 ```
@@ -860,32 +908,48 @@ df_dd90 <- df_dd %>%
 
 #Fazendo a regressão:
   #Colocar multiplicação (*) entre dummy de tratamento e tempo para diff-in-diff:
-reg90 <- lm(agenda_clima ~ Tratamento*Tempo + Ambiente + Mês + Populacao_2022 + IDHM, data = df_dd90)
-#+ Ambiente + Mês + Populacao_2022 + IDHM
-summary(reg90)
+reg90 <- lm(agenda_clima ~ Tratamento*Tempo + Tratamento + Tempo + Ambiente + Estacao + Populacao_2022 + IDHM + propensao, data = df_dd90)
+
+#+ Ambiente + Populacao_2022 + IDHM + Propensão + Estacao
+stargazer(reg90,title="Tabela de Regressão 2: Período de 90 dias", single.row=TRUE, ci=TRUE, ci.level=0.5)
 ```
 
 ```{r, 'ggplot_reg90'}
 #Visualizando o efeito: 
 
-vreg90 <- df_dd90 %>% 
-  group_by(Tratamento, Tempo) %>% 
-  summarise("média_n_projetos" = mean(agenda_clima)) %>% 
-  mutate("Tempo" = ifelse(Tempo == 0, -1, 1),
-         "Tratamento" = ifelse(Tratamento == 0, "Controle", "Tratado"))
+vreg90 <- broom::tidy(reg90) %>% 
+  filter(term %in% c("(Intercept)", "Tratamento", "Tempo", "Tratamento:Tempo")) %>% 
+  mutate(Valor = case_when(
+    term == "(Intercept)" ~ estimate,
+    term == "Tempo" ~ estimate + reg30$coefficients[1],
+    term == "Tratamento" ~ estimate + reg30$coefficients[1],
+    term == "Tratamento:Tempo" ~ estimate + reg30$coefficients[1] + reg30$coefficients["Tempo"] + reg30$coefficients["Tratamento"] + reg30$coefficients["Tratamento:Tempo"]),
+         Tratamento = case_when(
+           term == "(Intercept)" ~ "Controle",
+           term == "Tempo" ~ "Controle",
+           term == "Tratamento" ~ "Tratamento",
+           term == "Tratamento:Tempo" ~ "Tratamento"),
+         Tempo = case_when(
+           term == "(Intercept)" ~ -1,
+           term == "Tempo" ~ 1,
+           term == "Tratamento" ~ -1,
+           term == "Tratamento:Tempo" ~ 1)) 
+
 
 ggreg90 <- vreg90 %>% 
-  ggplot(aes(x = Tempo, y=média_n_projetos, color = Tratamento, group = Tratamento))+
-  geom_point(size = 5)+
+  ggplot(aes(x = Tempo, y=Valor, color = Tratamento, group = Tratamento))+
+  geom_point(size = 1)+
+  geom_errorbar(aes(ymin = Valor - 1.96 * std.error, ymax = Valor + 1.96 * std.error, width = 0.3)) +
   geom_line()+
   geom_vline(xintercept = 0, linetype = "dashed")+
   theme_linedraw()+
-  labs(title = "Figura 8 - Diff-in-Diffs 90 dias",
+  labs(title = "Figura 8 - Diff-in-Diffs: 90 dias",
         x = "Tempo em relação ao tratamento",
         y = "Nº médio de projetos climáticos")+
   scale_color_brewer(palette = "Dark2")+
   scale_x_continuous(breaks = c(-1, 0, 1),  # Set custom breaks for x-axis
-                     labels = c("-90 dias", "Tratamento", "+90 dias"))
+                     labels = c("-90 dias", "Tratamento", "+90 dias"))+
+  ylim(0,max(vreg90$Valor)+2*max(vreg90$std.error))
 
 ggreg90
 ```
@@ -904,32 +968,47 @@ df_dd1a <- df_dd %>%
 
 #Fazendo a regressão:
   #Colocar multiplicação (*) entre dummy de tratamento e tempo para diff-in-diff:
-reg1a <- lm(agenda_clima ~ Tratamento*Tempo + Ambiente + Mês + Populacao_2022 + IDHM, data = df_dd1a)
-#+ Ambiente + Mês + Populacao_2022 + IDHM
-summary(reg1a)
+reg1a <- lm(agenda_clima ~ Tratamento*Tempo + Tratamento + Tempo + Ambiente + Estacao + Populacao_2022 + IDHM + propensao, data = df_dd1a)
+#+ Ambiente + Populacao_2022 + IDHM + Estacao + Propensao
+stargazer(reg1a,title="Tabela de Regressão 3: Período de 1 ano", single.row=TRUE, ci=TRUE, ci.level=0.5)
 ```
 
 ```{r, 'ggplot_reg1a'}
 #Visualizando o efeito: 
 
-vreg1a <- df_dd1a %>% 
-  group_by(Tratamento, Tempo) %>% 
-  summarise("média_n_projetos" = mean(agenda_clima)) %>% 
-  mutate("Tempo" = ifelse(Tempo == 0, -1, 1),
-         "Tratamento" = ifelse(Tratamento == 0, "Controle", "Tratado"))
+vreg1a <- broom::tidy(reg1a) %>% 
+  filter(term %in% c("(Intercept)", "Tratamento", "Tempo", "Tratamento:Tempo")) %>% 
+  mutate(Valor = case_when(
+    term == "(Intercept)" ~ estimate,
+    term == "Tempo" ~ estimate + reg30$coefficients[1],
+    term == "Tratamento" ~ estimate + reg30$coefficients[1],
+    term == "Tratamento:Tempo" ~ estimate + reg30$coefficients[1] + reg30$coefficients["Tempo"] + reg30$coefficients["Tratamento"] + reg30$coefficients["Tratamento:Tempo"]),
+         Tratamento = case_when(
+           term == "(Intercept)" ~ "Controle",
+           term == "Tempo" ~ "Controle",
+           term == "Tratamento" ~ "Tratamento",
+           term == "Tratamento:Tempo" ~ "Tratamento"),
+         Tempo = case_when(
+           term == "(Intercept)" ~ -1,
+           term == "Tempo" ~ 1,
+           term == "Tratamento" ~ -1,
+           term == "Tratamento:Tempo" ~ 1)) 
+
 
 ggreg1a <- vreg1a %>% 
-  ggplot(aes(x = Tempo, y=média_n_projetos, color = Tratamento, group = Tratamento))+
-  geom_point(size = 5)+
+  ggplot(aes(x = Tempo, y=Valor, color = Tratamento, group = Tratamento))+
+  geom_point(size = 1)+
+  geom_errorbar(aes(ymin = Valor - 1.96 * std.error, ymax = Valor + 1.96 * std.error, width = 0.3)) +
   geom_line()+
   geom_vline(xintercept = 0, linetype = "dashed")+
   theme_linedraw()+
-  labs(title = "Figura 9 - Diff-in-Diffs 1 ano",
+  labs(title = "Figura 8 - Diff-in-Diffs: 1 ano",
         x = "Tempo em relação ao tratamento",
         y = "Nº médio de projetos climáticos")+
   scale_color_brewer(palette = "Dark2")+
   scale_x_continuous(breaks = c(-1, 0, 1),  # Set custom breaks for x-axis
-                     labels = c("-1 ano", "Tratamento", "+1 ano"))
+                     labels = c("-1 ano", "Tratamento", "+1 ano"))+
+  ylim(-2,max(vreg1a$Valor)+2*max(vreg1a$std.error))
 
 ggreg1a
 ```
@@ -949,32 +1028,47 @@ df_dd4a <- df_dd %>%
 
 #Fazendo a regressão:
   #Colocar multiplicação (*) entre dummy de tratamento e tempo para diff-in-diff:
-reg4a <- lm(agenda_clima ~ Tratamento*Tempo + Ambiente + Mês + Populacao_2022 + IDHM, data = df_dd4a)
-#+ Ambiente + Mês + Populacao_2022 + IDHM
-summary(reg4a)
+reg4a <- lm(agenda_clima ~ Tratamento*Tempo + Tratamento + Tempo + Ambiente + Estacao + Populacao_2022 + IDHM + propensao, data = df_dd4a)
+#+ Ambiente + Populacao_2022 + IDHM + Estacao + Propensao
+stargazer(reg4a,title="Tabela de Regressão 4: Período de 4 anos", single.row=TRUE, ci=TRUE, ci.level=0.5)
 ```
 
 ```{r, 'ggplot_reg4a'}
 #Visualizando o efeito: 
 
-vreg4a <- df_dd4a %>% 
-  group_by(Tratamento, Tempo) %>% 
-  summarise("média_n_projetos" = mean(agenda_clima)) %>% 
-  mutate("Tempo" = ifelse(Tempo == 0, -1, 1),
-         "Tratamento" = ifelse(Tratamento == 0, "Controle", "Tratado"))
+vreg4a <- broom::tidy(reg4a) %>% 
+  filter(term %in% c("(Intercept)", "Tratamento", "Tempo", "Tratamento:Tempo")) %>% 
+  mutate(Valor = case_when(
+    term == "(Intercept)" ~ estimate,
+    term == "Tempo" ~ estimate + reg30$coefficients[1],
+    term == "Tratamento" ~ estimate + reg30$coefficients[1],
+    term == "Tratamento:Tempo" ~ estimate + reg30$coefficients[1] + reg30$coefficients["Tempo"] + reg30$coefficients["Tratamento"] + reg30$coefficients["Tratamento:Tempo"]),
+         Tratamento = case_when(
+           term == "(Intercept)" ~ "Controle",
+           term == "Tempo" ~ "Controle",
+           term == "Tratamento" ~ "Tratamento",
+           term == "Tratamento:Tempo" ~ "Tratamento"),
+         Tempo = case_when(
+           term == "(Intercept)" ~ -1,
+           term == "Tempo" ~ 1,
+           term == "Tratamento" ~ -1,
+           term == "Tratamento:Tempo" ~ 1)) 
+
 
 ggreg4a <- vreg4a %>% 
-  ggplot(aes(x = Tempo, y=média_n_projetos, color = Tratamento, group = Tratamento))+
-  geom_point(size = 5)+
+  ggplot(aes(x = Tempo, y=Valor, color = Tratamento, group = Tratamento))+
+  geom_point(size = 1)+
+  geom_errorbar(aes(ymin = Valor - 1.96 * std.error, ymax = Valor + 1.96 * std.error, width = 0.3)) +
   geom_line()+
   geom_vline(xintercept = 0, linetype = "dashed")+
   theme_linedraw()+
-  labs(title = "Figura 10 - Diff-in-Diffs 4 anos",
+  labs(title = "Figura 8 - Diff-in-Diffs: 4 anos",
         x = "Tempo em relação ao tratamento",
         y = "Nº médio de projetos climáticos")+
   scale_color_brewer(palette = "Dark2")+
   scale_x_continuous(breaks = c(-1, 0, 1),  # Set custom breaks for x-axis
-                     labels = c("-4 anos", "Tratamento", "+4 anos"))
+                     labels = c("-4 anos", "Tratamento", "+4 anos"))+
+  ylim(-3,max(vreg4a$Valor)+2*max(vreg4a$std.error))
 
 ggreg4a
 ```
